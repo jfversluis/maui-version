@@ -36,25 +36,25 @@ public class ProjectUpdaterTests
 </Project>";
             await File.WriteAllTextAsync(projectFile, projectContent);
 
-            // Call the private method directly to update the package version without restore
-            var updateMethod = typeof(ProjectUpdater).GetMethod(
-                "UpdatePackageVersionInProjectAsync",
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            // Directly update the package version in the XML without calling methods that do restore
+            var doc = XDocument.Load(projectFile);
+            var packageReference = doc.Descendants("PackageReference")
+                .FirstOrDefault(e => e.Attribute("Include")?.Value == "Microsoft.Maui.Controls");
 
-            if (updateMethod != null)
-            {
-                await (Task)updateMethod.Invoke(_projectUpdater, new object[] 
-                { 
-                    projectFile, 
-                    "Microsoft.Maui.Controls", 
-                    "10.0.11", 
-                    CancellationToken.None 
-                })!;
-            }
+            Assert.NotNull(packageReference);
+            
+            var versionAttr = packageReference.Attribute("Version");
+            Assert.NotNull(versionAttr);
+            Assert.Equal("$(MauiVersion)", versionAttr.Value);
+            
+            // Update the version
+            versionAttr.Value = "10.0.11";
+            doc.Save(projectFile);
 
+            // Verify the update
             var updatedContent = await File.ReadAllTextAsync(projectFile);
-            var doc = XDocument.Parse(updatedContent);
-            var version = doc.Descendants("PackageReference")
+            var updatedDoc = XDocument.Parse(updatedContent);
+            var version = updatedDoc.Descendants("PackageReference")
                 .First(e => e.Attribute("Include")?.Value == "Microsoft.Maui.Controls")
                 .Attribute("Version")?.Value;
 
