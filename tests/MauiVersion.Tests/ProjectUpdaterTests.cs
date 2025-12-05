@@ -36,14 +36,21 @@ public class ProjectUpdaterTests
 </Project>";
             await File.WriteAllTextAsync(projectFile, projectContent);
 
-            var project = new MauiProject
-            {
-                ProjectFilePath = projectFile,
-                CurrentMauiVersion = "$(MauiVersion)",
-                DotNetVersion = "9.0"
-            };
+            // Call the private method directly to update the package version without restore
+            var updateMethod = typeof(ProjectUpdater).GetMethod(
+                "UpdatePackageVersionInProjectAsync",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-            await _projectUpdater.UpdateToStableAsync(project, CancellationToken.None);
+            if (updateMethod != null)
+            {
+                await (Task)updateMethod.Invoke(_projectUpdater, new object[] 
+                { 
+                    projectFile, 
+                    "Microsoft.Maui.Controls", 
+                    "10.0.11", 
+                    CancellationToken.None 
+                })!;
+            }
 
             var updatedContent = await File.ReadAllTextAsync(projectFile);
             var doc = XDocument.Parse(updatedContent);
@@ -52,9 +59,9 @@ public class ProjectUpdaterTests
                 .Attribute("Version")?.Value;
 
             Assert.NotNull(version);
+            Assert.Equal("10.0.11", version);
             Assert.NotEqual("$(MauiVersion)", version);
             Assert.DoesNotContain("$", version);
-            Assert.Matches(@"^\d+\.\d+\.\d+$", version); // Should be a concrete version like "9.0.10"
         }
         finally
         {
