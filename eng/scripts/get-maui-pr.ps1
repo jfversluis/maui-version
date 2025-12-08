@@ -7,24 +7,32 @@
     This script downloads and applies NuGet packages from a specific .NET MAUI pull request build
     to your local project. It automatically detects your project's target framework and updates
     the necessary package references.
+    
+    The script uses a hive-based approach, storing packages in: ~/.maui/hives/pr-<PR_NUMBER>/packages
 
-.PARAMETER PRNumber
-    The pull request number to apply. Required.
+.PARAMETER PrNumber
+    The pull request number to apply. Required. Can be passed as positional parameter.
 
 .PARAMETER ProjectPath
     The path to the .csproj file. If not specified, searches for a MAUI project in the current directory.
 
 .EXAMPLE
-    ./Apply-MauiPR.ps1 -PRNumber 33002
+    iex "& { $(irm https://raw.githubusercontent.com/dotnet/maui/main/eng/scripts/get-maui-pr.ps1) } 33002"
 
 .EXAMPLE
-    ./Apply-MauiPR.ps1 -PRNumber 33002 -ProjectPath ./MyApp/MyApp.csproj
+    ./get-maui-pr.ps1 33002
+
+.EXAMPLE
+    ./get-maui-pr.ps1 -PrNumber 33002 -ProjectPath ./MyApp/MyApp.csproj
 
 .NOTES
     This script requires:
     - .NET SDK installed
     - Internet connection to access GitHub and Azure DevOps APIs
     - A valid .NET MAUI project
+    
+    Repository Override:
+    Set MAUI_REPO environment variable to point to a fork (e.g., 'myfork/maui')
 
     For more information about testing PR builds, visit:
     https://github.com/dotnet/maui/wiki/Testing-PR-Builds
@@ -33,7 +41,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [int]$PRNumber,
+    [int]$PrNumber,
 
     [Parameter(Mandatory = $false)]
     [string]$ProjectPath = ""
@@ -42,8 +50,8 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-# Configuration
-$GitHubRepo = "dotnet/maui"
+# Configuration - Allow override via environment variable
+$GitHubRepo = if ($env:MAUI_REPO) { $env:MAUI_REPO } else { "dotnet/maui" }
 $AzureDevOpsOrg = "xamarin"
 $AzureDevOpsProject = "public"
 $PackageName = "Microsoft.Maui.Controls"
@@ -103,12 +111,12 @@ function Find-MauiProject {
 
 # Get PR information from GitHub
 function Get-PullRequestInfo {
-    param([int]$PRNumber)
+    param([int]$PrNumber)
 
-    Write-Info "Fetching PR #$PRNumber information from GitHub..."
+    Write-Info "Fetching PR #$PrNumber information from GitHub..."
     
     try {
-        $prUrl = "https://api.github.com/repos/$GitHubRepo/pulls/$PRNumber"
+        $prUrl = "https://api.github.com/repos/$GitHubRepo/pulls/$PrNumber"
         $pr = Invoke-RestMethod -Uri $prUrl -Headers @{ "User-Agent" = "MAUI-PR-Script" }
         
         return @{
@@ -120,7 +128,7 @@ function Get-PullRequestInfo {
         }
     }
     catch {
-        throw "Failed to fetch PR information. Make sure PR #$PRNumber exists. Error: $_"
+        throw "Failed to fetch PR information. Make sure PR #$PrNumber exists. Error: $_"
     }
 }
 
@@ -196,9 +204,16 @@ function Get-BuildArtifacts {
 function Get-Artifacts {
     param([string]$DownloadUrl, [string]$BuildId)
 
-    $tempDir = Join-Path $env:TEMP "maui-pr-$BuildId"
+    # Use hive directory pattern like Aspire CLI
+    $hiveDir = if ($IsWindows -or $env:OS -eq "Windows_NT") {
+        Join-Path $env:USERPROFILE ".maui\hives\pr-$PrNumber"
+    } else {
+        Join-Path $env:HOME ".maui/hives/pr-$PrNumber"
+    }
+    $packagesDir = Join-Path $hiveDir "packages"
+    $tempDir = $hiveDir
     $zipFile = Join-Path $tempDir "artifacts.zip"
-    $extractDir = Join-Path $tempDir "extracted"
+    $extractDir = $packagesDir
     
     if (Test-Path $tempDir) {
         Write-Info "Cleaning up previous download..."
@@ -273,22 +288,31 @@ function Get-TargetFrameworkVersion {
 
 # Check if version matches target framework
 function Test-VersionCompatibility {
-    param([string]$Version, [int]$TargetNetVersion)
+    param([string]$Version, [int]$TargetNetVersion, [int]$PackageNetVersion)
 
     # PR builds are typically for the latest .NET version
-    # Extract the .NET version from package version if possible (usually in the build number)
-    # For now, we'll check if it's a preview/nightly build and warn if TFM is older
+    # Check if the package targets a newer .NET version than the project
     
     if ($Version -match 'preview' -or $Version -match 'ci\.') {
-        # These are likely for the latest .NET version
-        $latestNetVersion = 10  # Update this as new .NET versions come out
-        
-        if ($TargetNetVersion -lt $latestNetVersion) {
+        if ($TargetNetVersion -lt $PackageNetVersion) {
             return $false
         }
     }
     
     return $true
+}
+
+# Extract .NET version from package version
+function Get-PackageDotNetVersion {
+    param([string]$Version)
+    
+    # Extract major version from package (e.g., "10.0.20-ci..." -> 10)
+    if ($Version -match '^(\d+)\.') {
+        return [int]$Matches[1]
+    }
+    
+    # Default to current stable if can't determine
+    return 9
 }
 
 # Update target frameworks
@@ -399,7 +423,7 @@ try {
     Write-Success "Found project: $projectName"
     
     Write-Step "Fetching PR information"
-    $prInfo = Get-PullRequestInfo -PRNumber $PRNumber
+    $prInfo = Get-PullRequestInfo -PrNumber $PrNumber
     Write-Info "PR #$($prInfo.Number): $($prInfo.Title)"
     Write-Info "State: $($prInfo.State)"
     
@@ -422,17 +446,21 @@ try {
     $version = Get-PackageVersion -PackagesDir $packagesDir
     Write-Success "Found package version: $version"
     
+    # Get package .NET version
+    $packageNetVersion = Get-PackageDotNetVersion -Version $version
+    
     # Check compatibility
-    $compatible = Test-VersionCompatibility -Version $version -TargetNetVersion $targetNetVersion
+    $compatible = Test-VersionCompatibility -Version $version -TargetNetVersion $targetNetVersion -PackageNetVersion $packageNetVersion
     $willUpdateTfm = $false
     if (-not $compatible) {
         Write-Warning "This PR build may target a newer .NET version than your project"
         Write-Info "Your project targets: .NET $targetNetVersion.0"
-        Write-Info "PR builds typically target: .NET 10.0 (or latest)"
+        Write-Info "This PR build targets: .NET $packageNetVersion.0"
         
-        $response = Read-Host "`nDo you want to update your project to .NET 10.0? (y/N)"
+        $response = Read-Host "`nDo you want to update your project to .NET $packageNetVersion.0? (y/N)"
         if ($response -eq "y" -or $response -eq "Y") {
             $willUpdateTfm = $true
+            Write-Warning "Note: You may need to manually update other package dependencies to versions compatible with .NET $packageNetVersion.0"
         }
         else {
             Write-Warning "Continuing without updating target framework. The package may not be compatible."
@@ -450,17 +478,18 @@ try {
     Write-Warning "This should NOT be used in production and is for testing purposes only."
     Write-Host ""
     Write-Host "TIP: Create a separate Git branch for testing!" -ForegroundColor Cyan
-    Write-Host "     git checkout -b test-pr-$PRNumber" -ForegroundColor Gray
+    Write-Host "     git checkout -b test-pr-$PrNumber" -ForegroundColor Gray
     Write-Host ""
     Write-Host "Please test the changes you are looking for, check for any side-effects," -ForegroundColor White
     Write-Host "and report your findings on:" -ForegroundColor White
-    Write-Host "  https://github.com/dotnet/maui/pull/$PRNumber" -ForegroundColor Blue
+    Write-Host "  https://github.com/dotnet/maui/pull/$PrNumber" -ForegroundColor Blue
     Write-Host ""
     Write-Host "Changes to be applied:" -ForegroundColor White
     Write-Host "  • Project: $projectName" -ForegroundColor Gray
     Write-Host "  • Package version: $version" -ForegroundColor Gray
     if ($willUpdateTfm) {
-        Write-Host "  • Target framework: Will be updated to .NET 10.0" -ForegroundColor Gray
+        $targetVersionForDisplay = if ($packageDotNetVersion) { "$packageDotNetVersion.0" } else { "10.0" }
+        Write-Host "  • Target framework: Will be updated to .NET $targetVersionForDisplay" -ForegroundColor Gray
     }
     Write-Host ""
     
@@ -472,8 +501,9 @@ try {
     Write-Host ""
     
     if ($willUpdateTfm) {
-        Update-TargetFrameworks -ProjectPath $projectPath -NewNetVersion 10
-        $targetNetVersion = 10
+        $targetNetVersionToApply = if ($packageDotNetVersion) { [int]$packageDotNetVersion } else { 10 }
+        Update-TargetFrameworks -ProjectPath $projectPath -NewNetVersion $targetNetVersionToApply
+        $targetNetVersion = $targetNetVersionToApply
     }
     
     Write-Step "Configuring NuGet sources"
@@ -496,7 +526,7 @@ try {
 
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║        ✅ Successfully applied PR #$PRNumber!                  ║
+║        ✅ Successfully applied PR #$PrNumber!                  ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
 
@@ -505,7 +535,7 @@ try {
     Write-Info "Next steps:"
     Write-Host "  1. Run 'dotnet restore' to download the packages" -ForegroundColor White
     Write-Host "  2. Build and test your project with the PR changes" -ForegroundColor White
-    Write-Host "  3. Report your findings on: https://github.com/dotnet/maui/pull/$PRNumber" -ForegroundColor Cyan
+    Write-Host "  3. Report your findings on: https://github.com/dotnet/maui/pull/$PrNumber" -ForegroundColor Cyan
     Write-Host ""
     Write-Info "Package: $PackageName $version"
     Write-Info "Local package source: $packagesDir"
@@ -520,7 +550,7 @@ try {
     Write-Host "   To:   Version=`"X.Y.Z`"" -ForegroundColor Gray
     Write-Host "   (Check https://www.nuget.org/packages/$PackageName for latest)" -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "2. In NuGet.config, remove or comment out the 'maui-pr-$PRNumber' source" -ForegroundColor White
+    Write-Host "2. In NuGet.config, remove or comment out the 'maui-pr-$PrNumber' source" -ForegroundColor White
     Write-Host ""
     Write-Host "3. Run: dotnet restore --force" -ForegroundColor White
     Write-Host ""
@@ -534,7 +564,8 @@ catch {
     Write-Host ""
     Write-Info "Troubleshooting tips:"
     Write-Host "  • Make sure you're in a directory containing a .NET MAUI project" -ForegroundColor Gray
-    Write-Host "  • Verify that PR #$PRNumber exists and has a completed build" -ForegroundColor Gray
+    Write-Host "  • Verify that PR #$PrNumber exists: https://github.com/dotnet/maui/pull/$PrNumber" -ForegroundColor Gray
+    Write-Host "  • Check if there's a completed build for this PR (look for green checkmarks)" -ForegroundColor Gray
     Write-Host "  • Check your internet connection" -ForegroundColor Gray
     Write-Host "  • Visit: https://github.com/dotnet/maui/wiki/Testing-PR-Builds" -ForegroundColor Gray
     

@@ -6,12 +6,15 @@
 # to your local project. It automatically detects your project's target framework and updates
 # the necessary package references.
 #
+# The script uses a hive-based approach, storing packages in: ~/.maui/hives/pr-<PR_NUMBER>/packages
+#
 # Usage:
-#   ./apply-maui-pr.sh <PR_NUMBER> [PROJECT_PATH]
+#   curl -fsSL https://raw.githubusercontent.com/dotnet/maui/main/eng/scripts/get-maui-pr.sh | bash -s -- 33002
+#   ./get-maui-pr.sh <PR_NUMBER> [PROJECT_PATH]
 #
 # Examples:
-#   ./apply-maui-pr.sh 33002
-#   ./apply-maui-pr.sh 33002 ./MyApp/MyApp.csproj
+#   ./get-maui-pr.sh 33002
+#   ./get-maui-pr.sh 33002 ./MyApp/MyApp.csproj
 #
 # Requirements:
 #   - .NET SDK installed
@@ -20,13 +23,34 @@
 #   - Internet connection to access GitHub and Azure DevOps APIs
 #   - A valid .NET MAUI project
 #
+# Repository Override:
+#   Set MAUI_REPO environment variable to point to a fork (e.g., 'myfork/maui')
+#
 # For more information about testing PR builds, visit:
 # https://github.com/dotnet/maui/wiki/Testing-PR-Builds
 
 set -e
 
-# Configuration
-GITHUB_REPO="dotnet/maui"
+# Error handler
+trap 'handle_error $? $LINENO' ERR
+
+handle_error() {
+    local exit_code=$1
+    local line_num=$2
+    echo ""
+    error "Failed to apply PR build (exit code: $exit_code at line $line_num)"
+    echo ""
+    info "Troubleshooting tips:"
+    echo "  • Make sure you're in a directory containing a .NET MAUI project"
+    echo "  • Verify that PR #${pr_number:-NUMBER} exists: https://github.com/dotnet/maui/pull/${pr_number:-NUMBER}"
+    echo "  • Check if there's a completed build for this PR (look for green checkmarks)"
+    echo "  • Check your internet connection"
+    echo "  • Visit: https://github.com/dotnet/maui/wiki/Testing-PR-Builds"
+    exit $exit_code
+}
+
+# Configuration - Allow override via environment variable
+GITHUB_REPO="${MAUI_REPO:-dotnet/maui}"
 AZURE_DEVOPS_ORG="xamarin"
 AZURE_DEVOPS_PROJECT="public"
 PACKAGE_NAME="Microsoft.Maui.Controls"
@@ -208,9 +232,12 @@ get_artifacts() {
     local download_url="$1"
     local build_id="$2"
     
-    local temp_dir="${TMPDIR:-/tmp}/maui-pr-$build_id"
+    # Use hive directory pattern like Aspire CLI
+    local hive_dir="$HOME/.maui/hives/pr-$pr_number"
+    local packages_dir="$hive_dir/packages"
+    local temp_dir="$hive_dir"
     local zip_file="$temp_dir/artifacts.zip"
-    local extract_dir="$temp_dir/extracted"
+    local extract_dir="$packages_dir"
     
     if [ -d "$temp_dir" ]; then
         info "Cleaning up previous download..."
@@ -278,15 +305,28 @@ get_target_framework_version() {
     exit 1
 }
 
+# Extract .NET version from package version
+get_package_dotnet_version() {
+    local version="$1"
+    
+    # Extract major version from package (e.g., "10.0.20-ci..." -> 10)
+    if [[ "$version" =~ ^([0-9]+)\. ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    
+    # Default to current stable if can't determine
+    echo "9"
+}
+
 # Check if version matches target framework
 test_version_compatibility() {
     local version="$1"
     local target_net_version="$2"
+    local package_net_version="$3"
     
     if [[ "$version" =~ preview|ci\. ]]; then
-        local latest_net_version=10
-        
-        if [ "$target_net_version" -lt "$latest_net_version" ]; then
+        if [ "$target_net_version" -lt "$package_net_version" ]; then
             return 1
         fi
     fi
@@ -376,7 +416,7 @@ main() {
         exit 1
     fi
     
-    local pr_number="$1"
+    pr_number="$1"  # Global for error handler
     local project_path_arg="${2:-}"
     
     # Check dependencies
@@ -425,17 +465,34 @@ EOF
     local version=$(get_package_version "$packages_dir")
     success "Found package version: $version"
     
+    # Extract .NET version from package version (e.g., 10.0.20-ci.main.25607.5 -> 10)
+    local package_dotnet_version=""
+    if [[ $version =~ ^([0-9]+)\. ]]; then
+        package_dotnet_version="${BASH_REMATCH[1]}"
+    fi
+    
+    # Get package .NET version
+    local package_net_version
+    package_net_version=$(get_package_dotnet_version "$version")
+    
     # Check compatibility
     local will_update_tfm=false
-    if ! test_version_compatibility "$version" "$target_net_version"; then
+    local target_version="$package_net_version.0"
+    if ! test_version_compatibility "$version" "$target_net_version" "$package_net_version"; then
         warning "This PR build may target a newer .NET version than your project"
         info "Your project targets: .NET $target_net_version.0"
-        info "PR builds typically target: .NET 10.0 (or latest)"
+        if [[ -n "$package_dotnet_version" ]]; then
+            info "This PR build targets: .NET $package_dotnet_version.0"
+            target_version="$package_dotnet_version.0"
+        else
+            info "This PR build targets: .NET $package_net_version.0"
+        fi
         
-        read -p "Do you want to update your project to .NET 10.0? (y/N) " -n 1 -r
+        read -p "Do you want to update your project to .NET $target_version? (y/N) " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             will_update_tfm=true
+            warning "Note: You may need to manually update other package dependencies to versions compatible with .NET $target_version"
         else
             warning "Continuing without updating target framework. The package may not be compatible."
         fi
@@ -462,7 +519,7 @@ EOF
     echo -e "${GRAY}  • Project: $project_name${NC}"
     echo -e "${GRAY}  • Package version: $version${NC}"
     if [ "$will_update_tfm" = true ]; then
-        echo -e "${GRAY}  • Target framework: Will be updated to .NET 10.0${NC}"
+        echo -e "${GRAY}  • Target framework: Will be updated to .NET $target_version${NC}"
     fi
     echo ""
     
@@ -475,8 +532,12 @@ EOF
     echo ""
     
     if [ "$will_update_tfm" = true ]; then
-        update_target_frameworks "$project_path" 10
-        target_net_version=10
+        local target_net_version_to_apply=10
+        if [[ -n "$package_dotnet_version" ]]; then
+            target_net_version_to_apply="$package_dotnet_version"
+        fi
+        update_target_frameworks "$project_path" "$target_net_version_to_apply"
+        target_net_version="$target_net_version_to_apply"
     fi
     
     step "Configuring NuGet sources"

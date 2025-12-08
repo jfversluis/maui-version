@@ -144,10 +144,15 @@ public class ProjectUpdater : IProjectUpdater
 
         if (!_targetFrameworkService.IsVersionCompatible(project.DotNetVersion, packageDotNetVersion))
         {
-            if (!await PromptForTargetFrameworkUpdateAsync(project.DotNetVersion, packageDotNetVersion, cancellationToken))
+            // Ensure we have a valid target version
+            var targetVersion = !string.IsNullOrEmpty(packageDotNetVersion) ? packageDotNetVersion : "10.0";
+            
+            if (!await PromptForTargetFrameworkUpdateAsync(project.DotNetVersion, targetVersion, cancellationToken))
             {
                 throw new OperationCanceledException("User cancelled due to target framework mismatch");
             }
+            
+            packageDotNetVersion = targetVersion;
             
             await AnsiConsole.Status()
                 .StartAsync($"Updating TargetFrameworks to .NET {packageDotNetVersion}...", async ctx =>
@@ -297,6 +302,12 @@ public class ProjectUpdater : IProjectUpdater
                     "Update TargetFrameworks to match package",
                     "Cancel operation"
                 }));
+
+        if (choice.StartsWith("Update"))
+        {
+            AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]Note: You may need to manually update other package dependencies to versions compatible with .NET {requiredVersion}[/]");
+            AnsiConsole.WriteLine();
+        }
 
         return choice.StartsWith("Update");
     }
