@@ -42,22 +42,25 @@ public class TargetFrameworkService : ITargetFrameworkService
 
         var doc = await Task.Run(() => XDocument.Load(projectPath), cancellationToken);
 
-        var tfmElement = doc.Descendants("TargetFrameworks").FirstOrDefault();
-        var usePlural = tfmElement != null;
+        // Update all TargetFrameworks and TargetFramework elements (including conditional ones)
+        var tfmElements = doc.Descendants("TargetFrameworks").Concat(doc.Descendants("TargetFramework")).ToList();
 
-        if (tfmElement == null)
+        if (tfmElements.Any())
         {
-            tfmElement = doc.Descendants("TargetFramework").FirstOrDefault();
-        }
-
-        if (tfmElement != null)
-        {
-            var currentValue = tfmElement.Value;
-            var updatedValue = Regex.Replace(currentValue, @"net\d+\.\d+", $"net{newDotNetVersion}");
-            tfmElement.Value = updatedValue;
+            foreach (var tfmElement in tfmElements)
+            {
+                var currentValue = tfmElement.Value;
+                var updatedValue = Regex.Replace(currentValue, @"net\d+\.\d+", $"net{newDotNetVersion}");
+                
+                if (currentValue != updatedValue)
+                {
+                    tfmElement.Value = updatedValue;
+                    _logger.LogInformation("Updated TargetFrameworks from {Old} to {New}", currentValue, updatedValue);
+                }
+            }
 
             await Task.Run(() => doc.Save(projectPath), cancellationToken);
-            _logger.LogInformation("Updated TargetFrameworks from {Old} to {New}", currentValue, updatedValue);
+            _logger.LogInformation("Note: You may need to update other package dependencies to match .NET {Version}", newDotNetVersion);
         }
     }
 }

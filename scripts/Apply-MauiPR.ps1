@@ -297,11 +297,12 @@ function Update-TargetFrameworks {
 
     $content = Get-Content $ProjectPath -Raw
     
-    # Update all netX.0-* references
+    # Update all netX.0-* references (including in conditional TargetFrameworks)
     $content = $content -replace 'net\d+\.0-', "net$NewNetVersion.0-"
     
     Set-Content -Path $ProjectPath -Value $content -NoNewline
     Write-Success "Updated target frameworks to .NET $NewNetVersion.0"
+    Write-Warning "You may need to update other package dependencies to match .NET $NewNetVersion.0"
 }
 
 # Create or update NuGet.config

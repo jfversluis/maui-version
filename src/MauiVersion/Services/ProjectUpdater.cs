@@ -91,6 +91,7 @@ public class ProjectUpdater : IProjectUpdater
                     ctx.Status($"Updating TargetFrameworks to .NET {packageDotNetVersion}...");
                     await _targetFrameworkService.UpdateTargetFrameworksAsync(project.ProjectFilePath, packageDotNetVersion!, cancellationToken);
                     AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated TargetFrameworks to .NET {packageDotNetVersion}");
+                    AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]You may need to update other package dependencies to match .NET {packageDotNetVersion}[/]");
                 }
                 
                 ctx.Status($"Updating to version {latestVersion}...");
@@ -156,6 +157,7 @@ public class ProjectUpdater : IProjectUpdater
                 });
             
             AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated TargetFrameworks to .NET {packageDotNetVersion}");
+            AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]You may need to update other package dependencies to match .NET {packageDotNetVersion}[/]");
         }
 
         var nugetSourcePath = Path.GetDirectoryName(mauiControlsPackage);

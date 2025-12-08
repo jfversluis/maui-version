@@ -302,11 +302,12 @@ update_target_frameworks() {
     # Create a backup
     cp "$project_path" "$project_path.bak"
     
-    # Update all netX.0-* references
+    # Update all netX.0-* references (including in conditional TargetFrameworks)
     sed -i.tmp "s/net[0-9]\+\.0-/net$new_net_version.0-/g" "$project_path"
     rm -f "$project_path.tmp"
     
     success "Updated target frameworks to .NET $new_net_version.0"
+    warning "You may need to update other package dependencies to match .NET $new_net_version.0"
 }
 
 # Create or update NuGet.config
