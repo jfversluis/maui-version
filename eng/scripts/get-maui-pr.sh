@@ -51,7 +51,7 @@ handle_error() {
 
 # Configuration - Allow override via environment variable
 GITHUB_REPO="${MAUI_REPO:-dotnet/maui}"
-AZURE_DEVOPS_ORG="xamarin"
+AZURE_DEVOPS_ORG="dnceng-public"
 AZURE_DEVOPS_PROJECT="public"
 PACKAGE_NAME="Microsoft.Maui.Controls"
 
@@ -174,8 +174,8 @@ get_build_info() {
     local checks_url="https://api.github.com/repos/$GITHUB_REPO/commits/$sha/check-runs"
     local checks_json=$(curl -s -H "User-Agent: MAUI-PR-Script" -H "Accept: application/vnd.github.v3+json" "$checks_url")
     
-    # Find the main MAUI build check
-    local build_check=$(echo "$checks_json" | jq -r '.check_runs[] | select(.name == "MAUI-public" and .status == "completed") | @json' | head -n 1)
+    # Find the main MAUI build check (not uitests)
+    local build_check=$(echo "$checks_json" | jq -r '.check_runs[] | select((.name | startswith("maui-pr")) and (.name | contains("uitests") | not) and .status == "completed" and (.details_url | contains("buildId="))) | @json' | head -n 1)
     
     if [ -z "$build_check" ] || [ "$build_check" == "null" ]; then
         error "No completed build found for this PR"
@@ -216,11 +216,11 @@ get_build_artifacts() {
     local artifacts_url="https://dev.azure.com/$AZURE_DEVOPS_ORG/$AZURE_DEVOPS_PROJECT/_apis/build/builds/$build_id/artifacts?api-version=7.1"
     local artifacts_json=$(curl -s -H "User-Agent: MAUI-PR-Script" "$artifacts_url")
     
-    # Look for nuget artifact
-    local download_url=$(echo "$artifacts_json" | jq -r '.value[] | select(.name == "nuget") | .resource.downloadUrl' | head -n 1)
+    # Look for PackageArtifacts artifact
+    local download_url=$(echo "$artifacts_json" | jq -r '.value[] | select(.name == "PackageArtifacts") | .resource.downloadUrl' | head -n 1)
     
     if [ -z "$download_url" ] || [ "$download_url" == "null" ]; then
-        error "No 'nuget' artifact found in build $build_id"
+        error "No 'PackageArtifacts' artifact found in build $build_id"
         exit 1
     fi
     
@@ -574,13 +574,27 @@ EOF
     info "Local package source: $packages_dir"
     echo ""
     
+    # Get latest stable version for revert instructions
+    local stable_version="X.Y.Z"
+    local package_lower=$(echo "$PACKAGE_NAME" | tr '[:upper:]' '[:lower:]')
+    if command -v curl >/dev/null 2>&1; then
+        local nuget_response=$(curl -s "https://api.nuget.org/v3-flatcontainer/$package_lower/index.json" 2>/dev/null || echo "")
+        if [[ -n "$nuget_response" ]]; then
+            # Extract stable versions (those without -)
+            stable_version=$(echo "$nuget_response" | grep -o '"[0-9]\+\.[0-9]\+\.[0-9]\+"' | grep -v '-' | tail -1 | tr -d '"')
+            if [[ -z "$stable_version" ]]; then
+                stable_version="X.Y.Z"
+            fi
+        fi
+    fi
+    
     echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
     echo -e "${YELLOW}  TO REVERT TO PRODUCTION VERSION${NC}"
     echo -e "${YELLOW}═══════════════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "${WHITE}1. Edit $project_name and change the version:${NC}"
     echo -e "${GRAY}   From: Version=\"$version\"${NC}"
-    echo -e "${GRAY}   To:   Version=\"X.Y.Z\"${NC}"
+    echo -e "${GRAY}   To:   Version=\"$stable_version\"${NC}"
     echo -e "${DGRAY}   (Check https://www.nuget.org/packages/$PACKAGE_NAME for latest)${NC}"
     echo ""
     echo -e "${WHITE}2. In NuGet.config, remove or comment out the 'maui-pr-$pr_number' source${NC}"

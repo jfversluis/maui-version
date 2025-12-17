@@ -7,7 +7,7 @@ This directory contains scripts to fetch and apply NuGet artifacts from .NET MAU
 - **`get-maui-pr.sh`** - Bash script for Unix-like systems (Linux, macOS)
 - **`get-maui-pr.ps1`** - PowerShell script for cross-platform use (Windows, Linux, macOS)
 
-## Quick Fetch
+## Quick Start
 
 ### PowerShell
 ```powershell
@@ -28,29 +28,31 @@ curl -fsSL https://raw.githubusercontent.com/dotnet/maui/main/eng/scripts/get-ma
 # PowerShell
 ./get-maui-pr.ps1 33002
 
-# Specify project path
+# Specify project path (optional - auto-detects by default)
 ./get-maui-pr.sh 33002 ./MyApp/MyApp.csproj
 ./get-maui-pr.ps1 -PrNumber 33002 -ProjectPath ./MyApp/MyApp.csproj
 ```
 
-## NuGet Hive Path
+## Package Storage (Hive Path)
 
-Packages are stored in a hive directory pattern:
+Packages are downloaded to a hive directory:
 - **Unix**: `~/.maui/hives/pr-<PR_NUMBER>/packages`
 - **Windows**: `%USERPROFILE%\.maui\hives\pr-<PR_NUMBER>\packages`
 
+This isolated approach prevents conflicts between different PR builds.
+
 ## Repository Override
 
-You can point the scripts at a fork by setting the `MAUI_REPO` environment variable to `owner/name` before invoking the script (defaults to `dotnet/maui`).
-
-**Examples:**
+You can test PRs from forks by setting the `MAUI_REPO` environment variable:
 
 ```bash
+# Bash
 export MAUI_REPO=myfork/maui
 ./get-maui-pr.sh 1234
 ```
 
 ```powershell
+# PowerShell
 $env:MAUI_REPO = 'myfork/maui'
 ./get-maui-pr.ps1 1234
 ```
@@ -58,32 +60,20 @@ $env:MAUI_REPO = 'myfork/maui'
 ## What These Scripts Do
 
 1. Fetch PR information from GitHub
-2. Find the associated Azure DevOps build
-3. Download NuGet artifacts from the build
-4. Detect your project's target framework
-5. Create/update NuGet.config with local package source
-6. Update package references in your project
-7. Optionally update target frameworks if needed (with confirmation)
+2. Find the associated Azure DevOps build (looking for "maui-pr" check)
+3. Download PackageArtifacts from the build
+4. Extract packages to hive directory
+5. Detect your project's target framework
+6. Create/update NuGet.config with local package source
+7. Update package references in your project
+8. Optionally update target frameworks if needed (with confirmation)
 
 ## Requirements
 
 - .NET SDK installed
 - A .NET MAUI project (`.csproj` with `<UseMaui>true</UseMaui>`)
 - Internet connection
-- **Bash only**: `curl`, `jq`, and `unzip`
-
-### Installing Bash Dependencies
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install curl jq unzip
-
-# macOS
-brew install jq
-
-# Fedora
-sudo dnf install jq
-```
+- **Bash only**: `curl` and `unzip` (standard on macOS/Linux)
 
 ## Parameters
 
@@ -103,12 +93,13 @@ sudo dnf install jq
 
 ## Safety Features
 
-- Asks for confirmation before making changes
-- Shows what will be modified
-- Warns about production usage
-- Recommends using a separate Git branch
-- Detects framework mismatches
-- Provides clear revert instructions
+- ✅ Asks for confirmation before making changes
+- ✅ Shows what will be modified
+- ✅ Warns about production usage
+- ✅ Recommends using a separate Git branch
+- ✅ Detects framework mismatches and offers to upgrade
+- ✅ Provides clear revert instructions
+- ✅ Backs up existing NuGet.config
 
 ## After Running
 
@@ -133,8 +124,9 @@ git checkout main  # Easy revert!
 
 ### "No build found for PR"
 - PR may not have a completed build yet
-- Check PR on GitHub for build status
-- Some PRs may not trigger builds
+- Check PR on GitHub for build status (look for "maui-pr" check)
+- Verify the build completed successfully on Azure DevOps
+- Some PRs may not trigger builds (e.g., documentation-only changes)
 
 ### "No .NET MAUI project found"
 - Ensure you're in a directory with a `.csproj` file
@@ -142,8 +134,21 @@ git checkout main  # Easy revert!
 
 ### "Failed to download artifacts"
 - Check internet connection
-- Artifacts may have expired (Azure DevOps retention)
+- Artifacts may have expired (Azure DevOps retention policy)
 - Try a more recent PR
+
+### "PackageArtifacts not found"
+- The build may not have completed the packaging step
+- Check if the build succeeded on Azure DevOps
+- Some builds may fail before producing artifacts
+
+## Azure DevOps Configuration
+
+The scripts look for builds in:
+- **Organization**: `dnceng-public`
+- **Project**: `public`
+- **Check name**: `maui-pr`
+- **Artifact name**: `PackageArtifacts`
 
 ## More Information
 

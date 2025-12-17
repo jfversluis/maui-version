@@ -106,25 +106,22 @@ public class AzureDevOpsService : IAzureDevOpsService
 
                 // Look for MAUI build checks that completed successfully
                 // Match patterns:
-                // 1. "MAUI-public" exactly (main build check without sub-jobs)
-                // 2. "MAUI" exactly (alternative build check name)
-                // 3. Any check that starts with "MAUI-public (" or "MAUI (" (sub-jobs from the same build)
-                // 4. Any check with "(Pack" in the name (Pack jobs definitely have artifacts)
+                // 1. "maui-pr" exactly (main build check without sub-jobs)
+                // 2. Any check that starts with "maui-pr (" or "maui-pr-" (sub-jobs from the same build)
+                // 3. Exclude uitests builds - they don't have PackageArtifacts
                 bool isRelevantBuild = false;
-                if (name == "MAUI-public" || name == "MAUI")
+                if (name == "maui-pr")
                 {
                     // Main build check
                     isRelevantBuild = true;
                 }
-                else if (name != null && (name.StartsWith("MAUI-public (") || name.StartsWith("MAUI (")))
+                else if (name != null && (name.StartsWith("maui-pr (") || name.StartsWith("maui-pr-")))
                 {
-                    // Sub-job of MAUI build - all sub-jobs reference the same parent build
-                    isRelevantBuild = true;
-                }
-                else if (name != null && name.Contains("(Pack") && status == "completed")
-                {
-                    // This is a Pack job which definitely has artifacts
-                    isRelevantBuild = true;
+                    // Exclude uitests builds
+                    if (!name.Contains("uitests", StringComparison.OrdinalIgnoreCase))
+                    {
+                        isRelevantBuild = true;
+                    }
                 }
 
                 if (isRelevantBuild && status == "completed" && detailsUrl != null && detailsUrl.Contains("dev.azure.com"))
@@ -133,8 +130,8 @@ public class AzureDevOpsService : IAzureDevOpsService
 
                     // Extract build info from URL
                     // Patterns:
-                    //  - https://dev.azure.com/xamarin/6fd3d886-57a5-4e31-8db7-52a1b47c07a8/_build/results?buildId=155100
-                    //  - https://dev.azure.com/xamarin/public/_build/results?buildId=155161&view=logs&jobId=...
+                    //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155100
+                    //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155161&view=logs&jobId=...
                     var match = System.Text.RegularExpressions.Regex.Match(detailsUrl, @"dev\.azure\.com/([^/]+)/([^/]+)/_build/results\?buildId=(\d+)");
                     if (match.Success)
                     {
@@ -193,11 +190,11 @@ public class AzureDevOpsService : IAzureDevOpsService
             var artifactsResponse = JsonSerializer.Deserialize<AzureDevOpsArtifactsResponse>(content);
 
             var nugetArtifact = artifactsResponse?.Value
-                .FirstOrDefault(a => a.Name.Equals("nuget", StringComparison.OrdinalIgnoreCase));
+                .FirstOrDefault(a => a.Name.Equals("PackageArtifacts", StringComparison.OrdinalIgnoreCase));
 
             if (nugetArtifact?.Resource?.DownloadUrl == null)
             {
-                throw new Exception($"NuGet artifact not found for build {buildId}");
+                throw new Exception($"PackageArtifacts artifact not found for build {buildId}");
             }
 
             _logger.LogInformation("Downloading artifact from {Url}", nugetArtifact.Resource.DownloadUrl);
