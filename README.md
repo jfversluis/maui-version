@@ -29,13 +29,13 @@ A command-line tool for managing .NET MAUI release channels, inspired by the [As
 ### Global Tool (Recommended)
 
 ```bash
-dotnet tool install --global MauiVersion
+dotnet tool install --global maui-version
 ```
 
 ### Update Existing Installation
 
 ```bash
-dotnet tool update --global MauiVersion
+dotnet tool update --global maui-version
 ```
 
 ### Uninstall
@@ -240,7 +240,7 @@ maui-version apply --channel stable
 # In your CI pipeline
 - name: Update MAUI to Stable
   run: |
-    dotnet tool install --global MauiVersion
+    dotnet tool install --global maui-version
     maui-version apply --channel stable --project ./src/MyApp
 ```
 

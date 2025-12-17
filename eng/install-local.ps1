@@ -55,10 +55,10 @@ try {
     Write-Host "✓ MauiVersion CLI installed successfully!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Usage:" -ForegroundColor Cyan
-    Write-Host "  mauiversion apply              # Interactive mode"
-    Write-Host "  mauiversion apply --stable     # Apply stable release"
-    Write-Host "  mauiversion apply --nightly    # Apply nightly build"
-    Write-Host "  mauiversion apply --pr 12345   # Apply PR build"
+    Write-Host "  maui-version apply              # Interactive mode"
+    Write-Host "  maui-version apply --stable     # Apply stable release"
+    Write-Host "  maui-version apply --nightly    # Apply nightly build"
+    Write-Host "  maui-version apply --pr 12345   # Apply PR build"
     Write-Host ""
 }
 finally {

@@ -55,7 +55,7 @@ dotnet pack src/MauiVersion/MauiVersion.csproj -o ./nupkg
 dotnet tool uninstall -g MauiVersion
 
 # Install your local version
-dotnet tool install -g MauiVersion --add-source ./nupkg --version 1.0.0
+dotnet tool install -g maui-version --add-source ./nupkg --version 1.0.0
 ```
 
 6. **Test Your Changes**
