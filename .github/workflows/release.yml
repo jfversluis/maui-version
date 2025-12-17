@@ -17,6 +17,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write
       
     steps:
     - name: Checkout
@@ -73,16 +74,21 @@ jobs:
         prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: NuGet login (OIDC → temp API key)
+      if: ${{ !contains(steps.version.outputs.VERSION, '-') }}
+      uses: nuget/login@v1
+      id: nuget-login
+      with:
+        user: ${{ secrets.NUGET_USER }}
         
     - name: Publish to NuGet.org
       if: ${{ !contains(steps.version.outputs.VERSION, '-') }}
       run: |
         dotnet nuget push ./packages/*.nupkg \
-          --api-key ${{ secrets.NUGET_API_KEY }} \
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
           --source https://api.nuget.org/v3/index.json \
           --skip-duplicate
-      env:
-        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         
     - name: Upload package artifacts
       uses: actions/upload-artifact@v4
