@@ -31,25 +31,93 @@ public class ProjectUpdater : IProjectUpdater
 
         await RemoveNuGetConfigAsync(projectDir, cancellationToken);
 
+        string? latestVersion = null;
+        int? targetTfmVersion = null;
+        
         await AnsiConsole.Status()
             .StartAsync("Fetching latest stable MAUI version...", async ctx =>
             {
                 ctx.Spinner(Spinner.Known.Dots);
                 
-                var latestVersion = await GetLatestStableVersionForTargetFrameworkAsync(project.DotNetVersion, cancellationToken);
-                _logger.LogInformation("Latest stable version for .NET {TFM}: {Version}", project.DotNetVersion, latestVersion);
+                latestVersion = await GetLatestStableVersionForTargetFrameworkAsync(project.DotNetVersion, cancellationToken);
                 
-                ctx.Status($"Updating to version {latestVersion}...");
-                await UpdatePackageVersionInProjectAsync(project.ProjectFilePath, MauiControlsPackage, latestVersion, cancellationToken);
+                if (string.IsNullOrEmpty(latestVersion))
+                {
+                    // No stable version for current TFM, get the latest overall stable
+                    latestVersion = await GetLatestStableVersionAsync(cancellationToken);
+                    
+                    if (string.IsNullOrEmpty(latestVersion))
+                    {
+                        throw new Exception("Could not find any stable version of Microsoft.Maui.Controls on NuGet.org");
+                    }
+                    
+                    // Try to determine what TFM this version needs
+                    var versionParts = latestVersion.Split('.');
+                    if (versionParts.Length >= 1 && int.TryParse(versionParts[0], out var majorVersion))
+                    {
+                        targetTfmVersion = majorVersion + 1; // MAUI 9.x needs .NET 9, etc.
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("Latest stable version for .NET {TFM}: {Version}", project.DotNetVersion, latestVersion);
+                }
+            });
+
+        // If we need to downgrade TFM, ask the user
+        if (targetTfmVersion.HasValue && int.TryParse(project.DotNetVersion, out var currentDotNetVersion) && targetTfmVersion.Value < currentDotNetVersion)
+        {
+            AnsiConsole.MarkupLine($"[yellow]⚠[/] Your project targets .NET {project.DotNetVersion}, but the latest stable MAUI is {latestVersion}");
+            AnsiConsole.MarkupLine($"[yellow]⚠[/] This version requires .NET {targetTfmVersion.Value}");
+            AnsiConsole.WriteLine();
+            
+            var shouldDowngrade = AnsiConsole.Confirm($"Do you want to update your project to .NET {targetTfmVersion.Value}?", false);
+            
+            if (shouldDowngrade)
+            {
+                await _targetFrameworkService.UpdateTargetFrameworksAsync(project.ProjectFilePath, targetTfmVersion.Value.ToString(), cancellationToken);
+                AnsiConsole.MarkupLine($"[green]✓[/] Updated TargetFrameworks to .NET {targetTfmVersion.Value}");
+                AnsiConsole.MarkupLine("[yellow]![/] Note: You may need to update other package dependencies to match .NET {0}", targetTfmVersion.Value);
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠[/] Continuing without TFM update. Package restore may fail.");
+            }
+        }
+
+        await AnsiConsole.Status()
+            .StartAsync($"Updating to version {latestVersion}...", async ctx =>
+            {
+                ctx.Spinner(Spinner.Known.Dots);
+                
+                ctx.Status($"Updating package version...");
+                await UpdatePackageVersionInProjectAsync(project.ProjectFilePath, MauiControlsPackage, latestVersion!, cancellationToken);
                 
                 ctx.Status("Restoring packages...");
+                var projectFileName = Path.GetFileName(project.ProjectFilePath);
                 var result = await RunDotNetCommandAsync(
-                    $"restore \"{project.ProjectFilePath}\"",
+                    $"restore \"{projectFileName}\" --disable-parallel",
                     projectDir,
                     cancellationToken);
 
                 if (result.exitCode != 0)
                 {
+                    AnsiConsole.MarkupLine("[red]✗[/] Package restore failed.");
+                    AnsiConsole.MarkupLine($"[yellow]⚠[/] Installed version: {latestVersion}");
+                    
+                    if (!string.IsNullOrEmpty(result.error))
+                    {
+                        AnsiConsole.MarkupLine($"[red]Error output:[/]");
+                        AnsiConsole.WriteLine(result.error);
+                    }
+                    if (!string.IsNullOrEmpty(result.output))
+                    {
+                        AnsiConsole.MarkupLine($"[yellow]Standard output:[/]");
+                        AnsiConsole.WriteLine(result.output);
+                    }
+                    
+                    AnsiConsole.MarkupLine("[yellow]⚠[/] Try running 'dotnet restore' manually to see the full error.");
+                    _logger.LogError("Restore failed. Error: {Error}, Output: {Output}", result.error, result.output);
                     throw new Exception($"Failed to restore packages: {result.error}");
                 }
             });
@@ -98,8 +166,9 @@ public class ProjectUpdater : IProjectUpdater
                 await UpdatePackageVersionInProjectAsync(project.ProjectFilePath, MauiControlsPackage, latestVersion, cancellationToken);
                 
                 ctx.Status("Restoring packages...");
+                var projectFileName = Path.GetFileName(project.ProjectFilePath);
                 var result = await RunDotNetCommandAsync(
-                    $"restore \"{project.ProjectFilePath}\"",
+                    $"restore \"{projectFileName}\"",
                     projectDir,
                     cancellationToken);
 
@@ -181,8 +250,9 @@ public class ProjectUpdater : IProjectUpdater
                 await UpdatePackageVersionInProjectAsync(project.ProjectFilePath, MauiControlsPackage, version, cancellationToken);
                 
                 ctx.Status("Restoring packages...");
+                var projectFileName = Path.GetFileName(project.ProjectFilePath);
                 var result = await RunDotNetCommandAsync(
-                    $"restore \"{project.ProjectFilePath}\"",
+                    $"restore \"{projectFileName}\"",
                     projectDir,
                     cancellationToken);
 
@@ -353,6 +423,12 @@ public class ProjectUpdater : IProjectUpdater
             _logger.LogError(ex, "Failed to fetch latest stable version");
             throw new Exception("Failed to fetch latest stable version from NuGet.org", ex);
         }
+    }
+
+    private async Task<string> GetLatestStableVersionAsync(CancellationToken cancellationToken)
+    {
+        // Just call the other method with null dotNetVersion to get the overall latest
+        return await GetLatestStableVersionForTargetFrameworkAsync(null, cancellationToken);
     }
 
     private async Task<string> GetLatestNightlyVersionAsync(string feedUrl, CancellationToken cancellationToken)
