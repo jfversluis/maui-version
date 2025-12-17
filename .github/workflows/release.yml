@@ -83,7 +83,6 @@ jobs:
         user: ${{ secrets.NUGET_USER }}
         
     - name: Publish to NuGet.org
-      if: ${{ !contains(steps.version.outputs.VERSION, '-') }}
       run: |
         dotnet nuget push ./packages/*.nupkg \
           --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" \
