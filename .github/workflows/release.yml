@@ -64,17 +64,6 @@ jobs:
     - name: List packages
       run: ls -la ./packages
       
-    - name: Create GitHub Release
-      if: github.event_name == 'push'
-      uses: softprops/action-gh-release@v2
-      with:
-        files: ./packages/*.nupkg
-        generate_release_notes: true
-        draft: false
-        prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
     - name: NuGet login (OIDC → temp API key)
       if: ${{ !contains(steps.version.outputs.VERSION, '-') }}
       uses: nuget/login@v1
