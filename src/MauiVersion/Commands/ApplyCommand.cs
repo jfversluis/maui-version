@@ -54,7 +54,7 @@ public class ApplyCommand : BaseCommand
             var channelName = parseResult.GetValueForOption(_channelOption);
             var prNumber = parseResult.GetValueForOption(_prOption);
 
-            AnsiConsole.Write(new FigletText("MAUI Channel").Color(Color.Purple));
+            AnsiConsole.Write(new FigletText("MAUI Version").Color(Color.Purple));
 
             var project = await _projectLocator.FindMauiProjectAsync(projectPath, cancellationToken);
             if (project == null)
