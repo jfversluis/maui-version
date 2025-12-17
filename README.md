@@ -91,9 +91,11 @@ Perfect for automation and CI/CD pipelines!
 ```bash
 # Apply latest stable release
 maui-version apply --channel stable
+maui-version apply -c stable  # Short version
 
 # With specific project path
 maui-version apply --channel stable --project ./src/MyMauiApp
+maui-version apply -c stable -p ./src/MyMauiApp  # Short version
 ```
 
 The CLI automatically selects the correct stable version based on your project's TargetFrameworks.
@@ -103,9 +105,11 @@ The CLI automatically selects the correct stable version based on your project's
 ```bash
 # Apply latest nightly build (interactive prompt for .NET version)
 maui-version apply --channel nightly
+maui-version apply -c nightly  # Short version
 
 # Non-interactive with auto-detection
 maui-version apply --channel nightly --project ./MyApp
+maui-version apply -c nightly -p ./MyApp  # Short version
 ```
 
 Nightly builds come from:
@@ -118,9 +122,11 @@ Test a specific pull request before it's merged:
 ```bash
 # Apply PR build by number
 maui-version apply --apply-pr 32931
+maui-version apply -pr 32931  # Short version
 
 # With project path
 maui-version apply --apply-pr 32931 --project ./src/MyApp
+maui-version apply -pr 32931 -p ./src/MyApp  # Short version
 ```
 
 **How PR Builds Work:**

@@ -31,18 +31,18 @@ public class ApplyCommand : BaseCommand
         _logger = logger;
 
         _projectOption = new Option<string?>(
-            "--project",
-            "Path to the .csproj file or directory containing the project");
+            aliases: ["--project", "-p"],
+            description: "Path to the .csproj file or directory containing the project");
         AddOption(_projectOption);
 
         _channelOption = new Option<string?>(
-            "--channel",
-            "Channel to apply: stable, nightly, or pr");
+            aliases: ["--channel", "-c"],
+            description: "Channel to apply: stable, nightly, or pr");
         AddOption(_channelOption);
 
         _prOption = new Option<int?>(
-            "--apply-pr",
-            "Apply artifacts from a specific PR number");
+            aliases: ["--apply-pr", "-pr"],
+            description: "Apply artifacts from a specific PR number");
         AddOption(_prOption);
     }
 
