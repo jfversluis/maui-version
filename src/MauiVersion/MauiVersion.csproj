@@ -9,7 +9,7 @@
     <RootNamespace>MauiVersion</RootNamespace>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>maui-version</ToolCommandName>
-    <PackageId>MauiVersion</PackageId>
+    <PackageId>maui-version</PackageId>
     <Version>1.0.0</Version>
     <Authors>Microsoft</Authors>
     <Description>CLI tool for managing .NET MAUI versions and release channels</Description>
