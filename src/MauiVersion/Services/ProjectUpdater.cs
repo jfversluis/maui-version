@@ -125,7 +125,7 @@ public class ProjectUpdater : IProjectUpdater
         AnsiConsole.MarkupLine("[green]✓[/] Updated to stable release");
     }
 
-    public async Task UpdateToNightlyAsync(MauiProject project, string feedUrl, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateToNightlyAsync(MauiProject project, string feedUrl, bool autoUpdateTfm = false, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Updating to nightly build from {FeedUrl}", feedUrl);
 
@@ -137,7 +137,7 @@ public class ProjectUpdater : IProjectUpdater
 
         await CreateNuGetConfigAsync(projectDir, feedUrl, "nightly", cancellationToken);
 
-        await AnsiConsole.Status()
+        var success = await AnsiConsole.Status()
             .StartAsync("Fetching latest nightly MAUI version...", async ctx =>
             {
                 ctx.Spinner(Spinner.Known.Dots);
@@ -147,19 +147,33 @@ public class ProjectUpdater : IProjectUpdater
                 
                 var packageDotNetVersion = _targetFrameworkService.ExtractDotNetVersionFromMauiVersion(latestVersion);
                 
+                // Check if there's a TFM mismatch
                 if (!_targetFrameworkService.IsVersionCompatible(project.DotNetVersion, packageDotNetVersion))
                 {
-                    ctx.Status("Target framework mismatch detected...");
-                    
-                    if (!await PromptForTargetFrameworkUpdateAsync(project.DotNetVersion, packageDotNetVersion, cancellationToken))
+                    if (autoUpdateTfm)
                     {
-                        throw new OperationCanceledException("User cancelled due to target framework mismatch");
+                        // -f flag was specified, auto-update without prompting
+                        ctx.Status($"Updating TargetFrameworks to .NET {packageDotNetVersion}...");
+                        await _targetFrameworkService.UpdateTargetFrameworksAsync(project.ProjectFilePath, packageDotNetVersion!, cancellationToken);
+                        AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated TargetFrameworks to .NET {packageDotNetVersion}");
+                        AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]You may need to update other package dependencies to match .NET {packageDotNetVersion}[/]");
                     }
-                    
-                    ctx.Status($"Updating TargetFrameworks to .NET {packageDotNetVersion}...");
-                    await _targetFrameworkService.UpdateTargetFrameworksAsync(project.ProjectFilePath, packageDotNetVersion!, cancellationToken);
-                    AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated TargetFrameworks to .NET {packageDotNetVersion}");
-                    AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]You may need to update other package dependencies to match .NET {packageDotNetVersion}[/]");
+                    else
+                    {
+                        // -f flag was not specified, prompt the user
+                        ctx.Status("Target framework mismatch detected...");
+                        
+                        if (!await PromptForTargetFrameworkUpdateAsync(project.DotNetVersion, packageDotNetVersion, cancellationToken))
+                        {
+                            AnsiConsole.MarkupLine("[yellow]✖[/] Operation cancelled by user");
+                            return false;
+                        }
+                        
+                        ctx.Status($"Updating TargetFrameworks to .NET {packageDotNetVersion}...");
+                        await _targetFrameworkService.UpdateTargetFrameworksAsync(project.ProjectFilePath, packageDotNetVersion!, cancellationToken);
+                        AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated TargetFrameworks to .NET {packageDotNetVersion}");
+                        AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]You may need to update other package dependencies to match .NET {packageDotNetVersion}[/]");
+                    }
                 }
                 
                 ctx.Status($"Updating to version {latestVersion}...");
@@ -176,12 +190,19 @@ public class ProjectUpdater : IProjectUpdater
                 {
                     throw new Exception($"Failed to restore packages: {result.error}");
                 }
+                
+                return true;
             });
 
-        AnsiConsole.MarkupLine("[green]✓[/] Updated to nightly build");
+        if (success)
+        {
+            AnsiConsole.MarkupLine("[green]✓[/] Updated to nightly build");
+        }
+        
+        return success;
     }
 
-    public async Task UpdateToPrBuildAsync(MauiProject project, string artifactsPath, CancellationToken cancellationToken = default)
+    public async Task<bool> UpdateToPrBuildAsync(MauiProject project, string artifactsPath, bool autoUpdateTfm = false, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Updating to PR build from {ArtifactsPath}", artifactsPath);
 
@@ -211,27 +232,48 @@ public class ProjectUpdater : IProjectUpdater
 
         var packageDotNetVersion = _targetFrameworkService.ExtractDotNetVersionFromMauiVersion(version);
 
+        // Check if there's a TFM mismatch
         if (!_targetFrameworkService.IsVersionCompatible(project.DotNetVersion, packageDotNetVersion))
         {
             // Ensure we have a valid target version
             var targetVersion = !string.IsNullOrEmpty(packageDotNetVersion) ? packageDotNetVersion : "10.0";
             
-            if (!await PromptForTargetFrameworkUpdateAsync(project.DotNetVersion, targetVersion, cancellationToken))
+            if (autoUpdateTfm)
             {
-                throw new OperationCanceledException("User cancelled due to target framework mismatch");
+                // -f flag was specified, auto-update without prompting
+                packageDotNetVersion = targetVersion;
+                
+                await AnsiConsole.Status()
+                    .StartAsync($"Updating TargetFrameworks to .NET {packageDotNetVersion}...", async ctx =>
+                    {
+                        ctx.Spinner(Spinner.Known.Dots);
+                        await _targetFrameworkService.UpdateTargetFrameworksAsync(project.ProjectFilePath, packageDotNetVersion!, cancellationToken);
+                    });
+                
+                AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated TargetFrameworks to .NET {packageDotNetVersion}");
+                AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]You may need to update other package dependencies to match .NET {packageDotNetVersion}[/]");
             }
-            
-            packageDotNetVersion = targetVersion;
-            
-            await AnsiConsole.Status()
-                .StartAsync($"Updating TargetFrameworks to .NET {packageDotNetVersion}...", async ctx =>
+            else
+            {
+                // -f flag was not specified, prompt the user
+                if (!await PromptForTargetFrameworkUpdateAsync(project.DotNetVersion, targetVersion, cancellationToken))
                 {
-                    ctx.Spinner(Spinner.Known.Dots);
-                    await _targetFrameworkService.UpdateTargetFrameworksAsync(project.ProjectFilePath, packageDotNetVersion!, cancellationToken);
-                });
-            
-            AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated TargetFrameworks to .NET {packageDotNetVersion}");
-            AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]You may need to update other package dependencies to match .NET {packageDotNetVersion}[/]");
+                    AnsiConsole.MarkupLine("[yellow]✖[/] Operation cancelled by user");
+                    return false;
+                }
+                
+                packageDotNetVersion = targetVersion;
+                
+                await AnsiConsole.Status()
+                    .StartAsync($"Updating TargetFrameworks to .NET {packageDotNetVersion}...", async ctx =>
+                    {
+                        ctx.Spinner(Spinner.Known.Dots);
+                        await _targetFrameworkService.UpdateTargetFrameworksAsync(project.ProjectFilePath, packageDotNetVersion!, cancellationToken);
+                    });
+                
+                AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated TargetFrameworks to .NET {packageDotNetVersion}");
+                AnsiConsole.MarkupLine($"[yellow]⚠[/] [dim]You may need to update other package dependencies to match .NET {packageDotNetVersion}[/]");
+            }
         }
 
         var nugetSourcePath = Path.GetDirectoryName(mauiControlsPackage);
@@ -263,6 +305,7 @@ public class ProjectUpdater : IProjectUpdater
             });
 
         AnsiConsole.MarkupLine($"[green]✓[/] Updated to PR build version {version}");
+        return true;
     }
 
     private async Task CreateNuGetConfigAsync(string projectDir, string sourceUrl, string sourceName, CancellationToken cancellationToken)

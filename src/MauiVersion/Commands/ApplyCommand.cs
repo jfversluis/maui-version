@@ -17,6 +17,7 @@ public class ApplyCommand : BaseCommand
     private readonly Option<string?> _projectOption;
     private readonly Option<string?> _channelOption;
     private readonly Option<int?> _prOption;
+    private readonly Option<string?> _targetFrameworkOption;
 
     public ApplyCommand(
         IProjectLocator projectLocator,
@@ -44,6 +45,11 @@ public class ApplyCommand : BaseCommand
             aliases: ["--apply-pr", "-pr"],
             description: "Apply artifacts from a specific PR number");
         AddOption(_prOption);
+
+        _targetFrameworkOption = new Option<string?>(
+            aliases: ["--target-framework", "-f"],
+            description: "Target .NET version (e.g., net9.0, net10.0). When specified, automatically updates TargetFrameworks if there's a mismatch. If not specified, prompts for version selection and TFM update confirmation.");
+        AddOption(_targetFrameworkOption);
     }
 
     protected override async Task<int> ExecuteAsync(ParseResult parseResult, CancellationToken cancellationToken)
@@ -53,6 +59,7 @@ public class ApplyCommand : BaseCommand
             var projectPath = parseResult.GetValueForOption(_projectOption);
             var channelName = parseResult.GetValueForOption(_channelOption);
             var prNumber = parseResult.GetValueForOption(_prOption);
+            var targetFramework = parseResult.GetValueForOption(_targetFrameworkOption);
 
             AnsiConsole.Write(new FigletText("MAUI Version").Color(Color.Purple));
 
@@ -95,7 +102,7 @@ public class ApplyCommand : BaseCommand
                         Type = ReleaseChannelType.Stable,
                         Description = "Stable release from NuGet.org"
                     },
-                    "nightly" => await SelectNightlyChannelAsync(cancellationToken),
+                    "nightly" => await SelectNightlyChannelAsync(targetFramework, cancellationToken),
                     "pr" => await SelectPrChannelAsync(cancellationToken),
                     _ => throw new Exception($"Unknown channel: {channelName}")
                 };
@@ -105,7 +112,10 @@ public class ApplyCommand : BaseCommand
                 channel = await PromptForChannelAsync(cancellationToken);
             }
 
-            await ApplyChannelAsync(project, channel, cancellationToken);
+            // Determine if we should auto-update TFM based on whether targetFramework was explicitly provided
+            bool autoUpdateTfm = !string.IsNullOrEmpty(targetFramework);
+            
+            await ApplyChannelAsync(project, channel, autoUpdateTfm, cancellationToken);
 
             return 0;
         }
@@ -142,7 +152,7 @@ public class ApplyCommand : BaseCommand
         }
         else if (selection.StartsWith("Nightly"))
         {
-            return await SelectNightlyChannelAsync(cancellationToken);
+            return await SelectNightlyChannelAsync(null, cancellationToken);
         }
         else
         {
@@ -150,7 +160,7 @@ public class ApplyCommand : BaseCommand
         }
     }
 
-    private async Task<ReleaseChannel> SelectNightlyChannelAsync(CancellationToken cancellationToken)
+    private async Task<ReleaseChannel> SelectNightlyChannelAsync(string? targetFramework, CancellationToken cancellationToken)
     {
         var nightlyChannels = new List<NightlyChannelOption>
         {
@@ -158,11 +168,24 @@ public class ApplyCommand : BaseCommand
             new NightlyChannelOption("dotnet10", "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json", ".NET 10 nightly builds")
         };
 
-        var selection = AnsiConsole.Prompt(
-            new SelectionPrompt<NightlyChannelOption>()
-                .Title("Select a [green]nightly channel[/]:")
-                .AddChoices(nightlyChannels)
-                .UseConverter(c => $"{c.Name} - {c.Description}"));
+        NightlyChannelOption selection;
+
+        // If target framework is specified via command line, use it
+        if (!string.IsNullOrEmpty(targetFramework))
+        {
+            var tfVersion = ExtractDotNetVersion(targetFramework);
+            selection = nightlyChannels.FirstOrDefault(c => c.Name.Contains(tfVersion))
+                ?? throw new Exception($"Unknown target framework: {targetFramework}. Use net9.0 or net10.0");
+        }
+        // Interactive mode - prompt user
+        else
+        {
+            selection = AnsiConsole.Prompt(
+                new SelectionPrompt<NightlyChannelOption>()
+                    .Title("Select a [green]nightly channel[/]:")
+                    .AddChoices(nightlyChannels)
+                    .UseConverter(c => $"{c.Name} - {c.Description}"));
+        }
 
         return new ReleaseChannel
         {
@@ -200,7 +223,7 @@ public class ApplyCommand : BaseCommand
         };
     }
 
-    private async Task ApplyChannelAsync(MauiProject project, ReleaseChannel channel, CancellationToken cancellationToken)
+    private async Task ApplyChannelAsync(MauiProject project, ReleaseChannel channel, bool autoUpdateTfm, CancellationToken cancellationToken)
     {
         AnsiConsole.MarkupLine($"[yellow]→[/] Applying channel: [cyan]{channel.Name}[/]");
 
@@ -215,7 +238,11 @@ public class ApplyCommand : BaseCommand
                 {
                     throw new Exception("Feed URL is required for nightly channel");
                 }
-                await _projectUpdater.UpdateToNightlyAsync(project, channel.FeedUrl, cancellationToken);
+                var nightlySuccess = await _projectUpdater.UpdateToNightlyAsync(project, channel.FeedUrl, autoUpdateTfm, cancellationToken);
+                if (!nightlySuccess)
+                {
+                    return; // User cancelled
+                }
                 break;
 
             case ReleaseChannelType.PR:
@@ -223,12 +250,23 @@ public class ApplyCommand : BaseCommand
                 {
                     throw new Exception("PR number is required for PR channel");
                 }
-                await ApplyPrBuildAsync(project, channel.PrNumber.Value, cancellationToken);
+                await ApplyPrBuildAsync(project, channel.PrNumber.Value, autoUpdateTfm, cancellationToken);
                 break;
         }
     }
 
-    private async Task ApplyPrBuildAsync(MauiProject project, int prNumber, CancellationToken cancellationToken)
+    private string ExtractDotNetVersion(string targetFramework)
+    {
+        // Extract version from formats like "net9.0", "net10.0", etc.
+        var match = System.Text.RegularExpressions.Regex.Match(targetFramework, @"net(\d+)");
+        if (match.Success)
+        {
+            return match.Groups[1].Value;
+        }
+        throw new Exception($"Invalid target framework format: {targetFramework}. Expected format: net9.0 or net10.0");
+    }
+
+    private async Task ApplyPrBuildAsync(MauiProject project, int prNumber, bool autoUpdateTfm, CancellationToken cancellationToken)
     {
         // Get build info first (without spinner so we can see debug output)
         AnsiConsole.MarkupLine($"[yellow]Looking for build artifacts for PR #{prNumber}...[/]");
@@ -253,7 +291,10 @@ public class ApplyCommand : BaseCommand
             });
 
         // Apply outside of spinner to allow prompts for TFM updates
-        await _projectUpdater.UpdateToPrBuildAsync(project, artifactsPath, cancellationToken);
-        AnsiConsole.MarkupLine("[green]✓[/] Applied PR build successfully");
+        var prSuccess = await _projectUpdater.UpdateToPrBuildAsync(project, artifactsPath, autoUpdateTfm, cancellationToken);
+        if (prSuccess)
+        {
+            AnsiConsole.MarkupLine("[green]✓[/] Applied PR build successfully");
+        }
     }
 }

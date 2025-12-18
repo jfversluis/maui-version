@@ -105,14 +105,20 @@ The CLI automatically selects the correct stable version based on your project's
 #### 🌙 Nightly Channel
 
 ```bash
-# Apply latest nightly build (interactive prompt for .NET version)
+# Apply latest nightly build (prompts for .NET version selection and TFM update confirmation)
 maui-version apply --channel nightly
 maui-version apply -c nightly  # Short version
 
-# Non-interactive with auto-detection
+# Apply nightly build with specific .NET version (auto-updates TFMs without prompting)
+maui-version apply --channel nightly --target-framework net10.0
+maui-version apply -c nightly -f net10.0  # Short version
+
+# With specific project path
 maui-version apply --channel nightly --project ./MyApp
 maui-version apply -c nightly -p ./MyApp  # Short version
 ```
+
+**Note:** When you specify `-f/--target-framework`, the tool will automatically update your TargetFrameworks if there's a mismatch. Without `-f`, the tool will prompt you for confirmation before making TFM changes.
 
 Nightly builds come from:
 - `https://aka.ms/maui-nightly/index.json` (combined feed)
@@ -122,14 +128,20 @@ Nightly builds come from:
 Test a specific pull request before it's merged:
 
 ```bash
-# Apply PR build by number
+# Apply PR build by number (prompts for .NET version and TFM update confirmation)
 maui-version apply --apply-pr 32931
 maui-version apply -pr 32931  # Short version
+
+# Apply PR build with specific .NET version (auto-updates TFMs without prompting)
+maui-version apply --apply-pr 32931 --target-framework net10.0
+maui-version apply -pr 32931 -f net10.0  # Short version
 
 # With project path
 maui-version apply --apply-pr 32931 --project ./src/MyApp
 maui-version apply -pr 32931 -p ./src/MyApp  # Short version
 ```
+
+**Note:** When you specify `-f/--target-framework`, the tool will automatically update your TargetFrameworks if there's a mismatch. Without `-f`, the tool will prompt you for confirmation before making TFM changes.
 
 **How PR Builds Work:**
 1. The CLI queries GitHub's Checks API for the PR
