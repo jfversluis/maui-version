@@ -12,7 +12,7 @@
 [![NuGet](https://img.shields.io/nuget/v/version-maui.svg)](https://www.nuget.org/packages/version-maui/)
 [![Downloads](https://img.shields.io/nuget/dt/version-maui.svg)](https://www.nuget.org/packages/version-maui/)
 
-A command-line tool for managing .NET MAUI release channels, inspired by the [Aspire CLI](https://github.com/dotnet/aspire/tree/main/src/Aspire.Cli). Easily switch between stable releases, nightly builds, and PR builds for your .NET MAUI projects.
+A (unofficial) command-line tool for managing .NET MAUI release channels, inspired by the [Aspire CLI](https://github.com/dotnet/aspire/tree/main/src/Aspire.Cli). Easily switch between stable releases, nightly builds, and PR builds for your .NET MAUI projects.
 
 ## ✨ Features
 
