@@ -279,45 +279,6 @@ The CLI uses clean architecture principles:
 - `AzureDevOpsService` - GitHub Checks API integration for PR builds
 - `TargetFrameworkService` - Manages .NET version compatibility
 
-## 🤖 PR Testing Scripts
-
-Don't want to install the CLI? We've got you covered! Use our standalone scripts to quickly test PR builds with a single command.
-
-### PowerShell (Windows, macOS, Linux)
-
-```powershell
-# One-liner to download and apply PR build
-iex "& { $(irm https://raw.githubusercontent.com/dotnet/maui/main/eng/scripts/get-maui-pr.ps1) } 12345"
-```
-
-### Bash (macOS, Linux)
-
-```bash
-# One-liner to download and apply PR build  
-curl -fsSL https://raw.githubusercontent.com/dotnet/maui/main/eng/scripts/get-maui-pr.sh | bash -s -- 12345
-```
-
-### What These Scripts Do
-
-These standalone scripts provide the same PR build functionality as the CLI without any installation! They will:
-
-1. 🔍 Find your MAUI project in the current directory
-2. 🔎 Query GitHub to find the PR and associated build
-3. 📦 Download build artifacts from Azure DevOps to hive directory (`~/.maui/hives/pr-#/packages`)
-4. ⚙️ Create NuGet.config with local package source
-5. ✅ Update your project to use the PR build
-6. 🎯 Check and optionally update TargetFrameworks if needed
-
-Perfect for:
-- 🚀 Quick PR testing without installation
-- 🤖 Bot-generated PR comments (coming soon!)
-- 📱 One-off testing scenarios
-- 🔄 CI/CD environments
-
-**Repository Override**: Set `MAUI_REPO=owner/name` to test forks.
-
-See [eng/scripts/README.md](eng/scripts/README.md) for full documentation and advanced usage.
-
 ## 🤝 Contributing
 
 Contributions are welcome! To contribute:
