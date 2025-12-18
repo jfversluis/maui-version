@@ -15,7 +15,7 @@ $repoRoot = Split-Path $PSScriptRoot -Parent
 
 if ($Uninstall) {
     Write-Host "Uninstalling maui-version..." -ForegroundColor Yellow
-    dotnet tool uninstall -g maui-version 2>&1 | Out-Null
+    dotnet tool uninstall -g version-maui 2>&1 | Out-Null
     Write-Host "✓ Uninstalled maui-version" -ForegroundColor Green
     exit 0
 }
@@ -41,12 +41,12 @@ try {
 
     # Uninstall existing version
     Write-Host "Uninstalling existing version..." -ForegroundColor Yellow
-    dotnet tool uninstall -g maui-version 2>&1 | Out-Null
+    dotnet tool uninstall -g version-maui 2>&1 | Out-Null
 
     # Install from local nupkg
     Write-Host "Installing from local package..." -ForegroundColor Cyan
     $nupkgPath = Join-Path $repoRoot "nupkg"
-    dotnet tool install -g mauiversion --add-source $nupkgPath --prerelease
+    dotnet tool install -g version-maui --add-source $nupkgPath --prerelease
     if ($LASTEXITCODE -ne 0) {
         throw "Installation failed"
     }

@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [[ "${1:-}" == "--uninstall" ]]; then
     echo "Uninstalling maui-version..."
-    dotnet tool uninstall -g maui-version 2>&1 || true
+    dotnet tool uninstall -g version-maui 2>&1 || true
     echo "✓ Uninstalled maui-version"
     exit 0
 fi
@@ -25,11 +25,11 @@ echo "✓ Build successful"
 
 # Uninstall existing version
 echo "Uninstalling existing version..."
-dotnet tool uninstall -g maui-version 2>&1 || true
+dotnet tool uninstall -g version-maui 2>&1 || true
 
 # Install from local nupkg
 echo "Installing from local package..."
-dotnet tool install -g mauiversion --add-source "$REPO_ROOT/nupkg" --prerelease
+dotnet tool install -g version-maui --add-source "$REPO_ROOT/nupkg" --prerelease
 
 echo ""
 echo "✓ MauiVersion CLI installed successfully!"
