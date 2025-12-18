@@ -9,7 +9,7 @@
     <RootNamespace>MauiVersion</RootNamespace>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>maui-version</ToolCommandName>
-    <PackageId>maui-version-cli</PackageId>
+    <PackageId>mauiversion</PackageId>
     <Version>1.0.0</Version>
     <Authors>Gerald Versluis</Authors>
     <Description>CLI tool for managing .NET MAUI versions and release channels. Easily switch between stable, nightly, and PR builds.</Description>

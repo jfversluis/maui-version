@@ -9,8 +9,8 @@
 ```
 
 [![CI Build](https://github.com/jfversluis/maui-version/actions/workflows/ci.yml/badge.svg)](https://github.com/jfversluis/maui-version/actions/workflows/ci.yml)
-[![NuGet](https://img.shields.io/nuget/v/maui-version-cli.svg)](https://www.nuget.org/packages/maui-version-cli/)
-[![Downloads](https://img.shields.io/nuget/dt/maui-version-cli.svg)](https://www.nuget.org/packages/maui-version-cli/)
+[![NuGet](https://img.shields.io/nuget/v/mauiversion.svg)](https://www.nuget.org/packages/mauiversion/)
+[![Downloads](https://img.shields.io/nuget/dt/mauiversion.svg)](https://www.nuget.org/packages/mauiversion/)
 
 A command-line tool for managing .NET MAUI release channels, inspired by the [Aspire CLI](https://github.com/dotnet/aspire/tree/main/src/Aspire.Cli). Easily switch between stable releases, nightly builds, and PR builds for your .NET MAUI projects.
 
@@ -29,21 +29,21 @@ A command-line tool for managing .NET MAUI release channels, inspired by the [As
 ### Global Tool (Recommended)
 
 ```bash
-dotnet tool install --global maui-version-cli
+dotnet tool install --global mauiversion
 ```
 
-> **Note:** The package name is `maui-version-cli`, but the command to run it is `maui-version`.
+> **Note:** The package name is `mauiversion`, but the command to run it is `maui-version`.
 
 ### Update Existing Installation
 
 ```bash
-dotnet tool update --global maui-version-cli
+dotnet tool update --global mauiversion
 ```
 
 ### Uninstall
 
 ```bash
-dotnet tool uninstall --global maui-version-cli
+dotnet tool uninstall --global mauiversion
 ```
 
 ## 🎯 Quick Start
@@ -248,7 +248,7 @@ maui-version apply --channel stable
 # In your CI pipeline
 - name: Update MAUI to Stable
   run: |
-    dotnet tool install --global maui-version-cli
+    dotnet tool install --global mauiversion
     maui-version apply --channel stable --project ./src/MyApp
 ```
 

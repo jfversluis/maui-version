@@ -29,7 +29,7 @@ dotnet tool uninstall -g maui-version 2>&1 || true
 
 # Install from local nupkg
 echo "Installing from local package..."
-dotnet tool install -g maui-version-cli --add-source "$REPO_ROOT/nupkg" --prerelease
+dotnet tool install -g mauiversion --add-source "$REPO_ROOT/nupkg" --prerelease
 
 echo ""
 echo "✓ MauiVersion CLI installed successfully!"

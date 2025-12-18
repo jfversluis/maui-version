@@ -46,7 +46,7 @@ try {
     # Install from local nupkg
     Write-Host "Installing from local package..." -ForegroundColor Cyan
     $nupkgPath = Join-Path $repoRoot "nupkg"
-    dotnet tool install -g maui-version-cli --add-source $nupkgPath --prerelease
+    dotnet tool install -g mauiversion --add-source $nupkgPath --prerelease
     if ($LASTEXITCODE -ne 0) {
         throw "Installation failed"
     }
