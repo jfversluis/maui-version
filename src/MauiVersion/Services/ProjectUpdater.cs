@@ -312,24 +312,80 @@ public class ProjectUpdater : IProjectUpdater
     {
         var nugetConfigPath = Path.Combine(projectDir, "NuGet.config");
         
-        var config = new XDocument(
-            new XDeclaration("1.0", "utf-8", null),
-            new XElement("configuration",
-                new XElement("packageSources",
-                    new XElement("clear"),
-                    new XElement("add",
-                        new XAttribute("key", sourceName),
-                        new XAttribute("value", sourceUrl)),
-                    new XElement("add",
-                        new XAttribute("key", "nuget.org"),
-                        new XAttribute("value", "https://api.nuget.org/v3/index.json"))
+        XDocument config;
+        XElement packageSources;
+        
+        // Check if NuGet.config already exists
+        if (File.Exists(nugetConfigPath))
+        {
+            // Load existing config
+            config = await Task.Run(() => XDocument.Load(nugetConfigPath), cancellationToken);
+            
+            // Get or create the configuration element
+            var configElement = config.Element("configuration");
+            if (configElement == null)
+            {
+                configElement = new XElement("configuration");
+                config.Add(configElement);
+            }
+            
+            // Get or create the packageSources element
+            packageSources = configElement.Element("packageSources");
+            if (packageSources == null)
+            {
+                packageSources = new XElement("packageSources");
+                configElement.Add(packageSources);
+            }
+            
+            // Remove any existing <clear/> element to avoid breaking parent configs
+            packageSources.Elements("clear").Remove();
+            
+            // Remove the source if it already exists (so we can update it)
+            packageSources.Elements("add")
+                .Where(e => e.Attribute("key")?.Value == sourceName)
+                .Remove();
+            
+            // Ensure nuget.org is present
+            var nugetOrgExists = packageSources.Elements("add")
+                .Any(e => e.Attribute("key")?.Value == "nuget.org");
+            
+            if (!nugetOrgExists)
+            {
+                packageSources.Add(new XElement("add",
+                    new XAttribute("key", "nuget.org"),
+                    new XAttribute("value", "https://api.nuget.org/v3/index.json")));
+            }
+            
+            // Add the new source at the beginning (higher priority)
+            packageSources.AddFirst(new XElement("add",
+                new XAttribute("key", sourceName),
+                new XAttribute("value", sourceUrl)));
+            
+            _logger.LogInformation("Updated NuGet.config at {Path}", nugetConfigPath);
+            AnsiConsole.MarkupLine($"[blue]ℹ[/] Updated NuGet.config with source: {sourceName}");
+        }
+        else
+        {
+            // Create new config without <clear/> to avoid breaking parent configs
+            config = new XDocument(
+                new XDeclaration("1.0", "utf-8", null),
+                new XElement("configuration",
+                    new XElement("packageSources",
+                        new XElement("add",
+                            new XAttribute("key", sourceName),
+                            new XAttribute("value", sourceUrl)),
+                        new XElement("add",
+                            new XAttribute("key", "nuget.org"),
+                            new XAttribute("value", "https://api.nuget.org/v3/index.json"))
+                    )
                 )
-            )
-        );
+            );
+            
+            _logger.LogInformation("Created NuGet.config at {Path}", nugetConfigPath);
+            AnsiConsole.MarkupLine($"[blue]ℹ[/] Created NuGet.config with source: {sourceName}");
+        }
 
         await Task.Run(() => config.Save(nugetConfigPath), cancellationToken);
-        _logger.LogInformation("Created NuGet.config at {Path}", nugetConfigPath);
-        AnsiConsole.MarkupLine($"[blue]ℹ[/] Created NuGet.config with source: {sourceName}");
     }
 
     private async Task RemoveNuGetConfigAsync(string projectDir, CancellationToken cancellationToken)

@@ -119,4 +119,223 @@ public class ProjectUpdaterTests
             Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public async Task CreateNuGetConfig_CreatesNewFile_WhenNotExists()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var createMethod = typeof(ProjectUpdater).GetMethod(
+                "CreateNuGetConfigAsync",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (createMethod != null)
+            {
+                await (Task)createMethod.Invoke(_projectUpdater, new object[] 
+                { 
+                    tempDir, 
+                    "https://example.com/feed", 
+                    "test-feed", 
+                    CancellationToken.None 
+                })!;
+            }
+
+            var nugetConfigPath = Path.Combine(tempDir, "NuGet.config");
+            Assert.True(File.Exists(nugetConfigPath));
+
+            var config = XDocument.Load(nugetConfigPath);
+            var packageSources = config.Descendants("packageSources").First();
+            
+            // Should not have <clear/> element
+            Assert.Empty(packageSources.Elements("clear"));
+            
+            // Should have test-feed and nuget.org
+            var sources = packageSources.Elements("add").ToList();
+            Assert.Equal(2, sources.Count);
+            Assert.Contains(sources, s => s.Attribute("key")?.Value == "test-feed" && s.Attribute("value")?.Value == "https://example.com/feed");
+            Assert.Contains(sources, s => s.Attribute("key")?.Value == "nuget.org");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task CreateNuGetConfig_UpdatesExistingFile_PreservesOtherSources()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var nugetConfigPath = Path.Combine(tempDir, "NuGet.config");
+            
+            // Create an existing NuGet.config with custom source
+            var existingConfig = new XDocument(
+                new XDeclaration("1.0", "utf-8", null),
+                new XElement("configuration",
+                    new XElement("packageSources",
+                        new XElement("add",
+                            new XAttribute("key", "custom-feed"),
+                            new XAttribute("value", "https://custom.com/feed")),
+                        new XElement("add",
+                            new XAttribute("key", "nuget.org"),
+                            new XAttribute("value", "https://api.nuget.org/v3/index.json"))
+                    )
+                )
+            );
+            existingConfig.Save(nugetConfigPath);
+
+            var createMethod = typeof(ProjectUpdater).GetMethod(
+                "CreateNuGetConfigAsync",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (createMethod != null)
+            {
+                await (Task)createMethod.Invoke(_projectUpdater, new object[] 
+                { 
+                    tempDir, 
+                    "https://nightly.com/feed", 
+                    "nightly", 
+                    CancellationToken.None 
+                })!;
+            }
+
+            var config = XDocument.Load(nugetConfigPath);
+            var packageSources = config.Descendants("packageSources").First();
+            
+            // Should not have <clear/> element
+            Assert.Empty(packageSources.Elements("clear"));
+            
+            // Should have all three sources
+            var sources = packageSources.Elements("add").ToList();
+            Assert.Equal(3, sources.Count);
+            Assert.Contains(sources, s => s.Attribute("key")?.Value == "nightly");
+            Assert.Contains(sources, s => s.Attribute("key")?.Value == "custom-feed");
+            Assert.Contains(sources, s => s.Attribute("key")?.Value == "nuget.org");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task CreateNuGetConfig_RemovesClearElement_FromExistingConfig()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var nugetConfigPath = Path.Combine(tempDir, "NuGet.config");
+            
+            // Create an existing NuGet.config with <clear/>
+            var existingConfig = new XDocument(
+                new XDeclaration("1.0", "utf-8", null),
+                new XElement("configuration",
+                    new XElement("packageSources",
+                        new XElement("clear"),
+                        new XElement("add",
+                            new XAttribute("key", "custom-feed"),
+                            new XAttribute("value", "https://custom.com/feed"))
+                    )
+                )
+            );
+            existingConfig.Save(nugetConfigPath);
+
+            var createMethod = typeof(ProjectUpdater).GetMethod(
+                "CreateNuGetConfigAsync",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (createMethod != null)
+            {
+                await (Task)createMethod.Invoke(_projectUpdater, new object[] 
+                { 
+                    tempDir, 
+                    "https://nightly.com/feed", 
+                    "nightly", 
+                    CancellationToken.None 
+                })!;
+            }
+
+            var config = XDocument.Load(nugetConfigPath);
+            var packageSources = config.Descendants("packageSources").First();
+            
+            // Should have removed <clear/> element
+            Assert.Empty(packageSources.Elements("clear"));
+            
+            // Should have nightly, custom-feed, and nuget.org
+            var sources = packageSources.Elements("add").ToList();
+            Assert.Equal(3, sources.Count);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task CreateNuGetConfig_UpdatesExistingSource_WhenSameKeyExists()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var nugetConfigPath = Path.Combine(tempDir, "NuGet.config");
+            
+            // Create an existing NuGet.config with nightly source
+            var existingConfig = new XDocument(
+                new XDeclaration("1.0", "utf-8", null),
+                new XElement("configuration",
+                    new XElement("packageSources",
+                        new XElement("add",
+                            new XAttribute("key", "nightly"),
+                            new XAttribute("value", "https://old-nightly.com/feed")),
+                        new XElement("add",
+                            new XAttribute("key", "nuget.org"),
+                            new XAttribute("value", "https://api.nuget.org/v3/index.json"))
+                    )
+                )
+            );
+            existingConfig.Save(nugetConfigPath);
+
+            var createMethod = typeof(ProjectUpdater).GetMethod(
+                "CreateNuGetConfigAsync",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (createMethod != null)
+            {
+                await (Task)createMethod.Invoke(_projectUpdater, new object[] 
+                { 
+                    tempDir, 
+                    "https://new-nightly.com/feed", 
+                    "nightly", 
+                    CancellationToken.None 
+                })!;
+            }
+
+            var config = XDocument.Load(nugetConfigPath);
+            var packageSources = config.Descendants("packageSources").First();
+            
+            var sources = packageSources.Elements("add").ToList();
+            
+            // Should have only 2 sources (nightly replaced, nuget.org kept)
+            Assert.Equal(2, sources.Count);
+            
+            // Check that nightly was updated with new URL
+            var nightlySource = sources.FirstOrDefault(s => s.Attribute("key")?.Value == "nightly");
+            Assert.NotNull(nightlySource);
+            Assert.Equal("https://new-nightly.com/feed", nightlySource.Attribute("value")?.Value);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 }
