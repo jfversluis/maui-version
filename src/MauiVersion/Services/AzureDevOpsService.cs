@@ -22,50 +22,109 @@ public class AzureDevOpsService : IAzureDevOpsService
 
     public async Task<AzureDevOpsBuild?> GetBuildForPrAsync(int prNumber, CancellationToken cancellationToken = default)
     {
-        // Get the commit SHA from GitHub PR
-        var commitSha = await GetCommitShaFromGitHubPrAsync(prNumber, cancellationToken);
-        if (commitSha == null)
+        // Get all commits from the PR
+        var commits = await GetCommitsFromPrAsync(prNumber, cancellationToken);
+        if (commits == null || commits.Count == 0)
         {
-            _logger.LogError("Could not get commit SHA from GitHub for PR {PrNumber}", prNumber);
+            _logger.LogError("Could not get commits from GitHub for PR {PrNumber}", prNumber);
             return null;
         }
 
-        // Get the build info from GitHub Checks API
-        return await GetBuildFromGitHubChecksAsync(commitSha, prNumber, cancellationToken);
+        // Try each commit starting from the most recent until we find one with a build that has PackageArtifacts
+        foreach (var commitSha in commits)
+        {
+            _logger.LogInformation("Checking commit {Sha} for builds with PackageArtifacts", commitSha.Substring(0, 8));
+            var build = await GetBuildFromCommitChecksAsync(commitSha, prNumber, cancellationToken);
+            
+            if (build != null)
+            {
+                // Verify this build has PackageArtifacts before returning it
+                if (await HasPackageArtifactsAsync(build.Id, build.Organization, build.Project, cancellationToken))
+                {
+                    _logger.LogInformation("Found build {BuildId} with PackageArtifacts for commit {Sha}", build.Id, commitSha.Substring(0, 8));
+                    return build;
+                }
+                else
+                {
+                    _logger.LogInformation("Build {BuildId} found but does not have PackageArtifacts, checking earlier commits", build.Id);
+                }
+            }
+        }
+
+        _logger.LogWarning("No builds with PackageArtifacts found across {Count} commits in PR #{PrNumber}", commits.Count, prNumber);
+        return null;
     }
 
-    private async Task<string?> GetCommitShaFromGitHubPrAsync(int prNumber, CancellationToken cancellationToken)
+    private async Task<List<string>?> GetCommitsFromPrAsync(int prNumber, CancellationToken cancellationToken)
     {
         try
         {
-            var url = $"https://api.github.com/repos/dotnet/maui/pulls/{prNumber}";
+            var url = $"https://api.github.com/repos/dotnet/maui/pulls/{prNumber}/commits?per_page=100";
             
             var response = await _httpClient.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Failed to fetch PR from GitHub: {StatusCode}", response.StatusCode);
+                _logger.LogWarning("Failed to fetch commits from GitHub: {StatusCode}", response.StatusCode);
                 return null;
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var prData = JsonSerializer.Deserialize<JsonElement>(content);
+            var commitsData = JsonSerializer.Deserialize<JsonElement>(content);
             
-            var sha = prData.GetProperty("head").GetProperty("sha").GetString();
-            _logger.LogInformation("Found commit SHA from GitHub PR: {Sha}", sha);
+            var commits = new List<string>();
+            foreach (var commit in commitsData.EnumerateArray())
+            {
+                var sha = commit.GetProperty("sha").GetString();
+                if (sha != null)
+                {
+                    commits.Add(sha);
+                }
+            }
 
-            return sha;
+            // Return commits in reverse order (most recent first)
+            commits.Reverse();
+            _logger.LogInformation("Found {Count} commits in PR #{PrNumber}", commits.Count, prNumber);
+            return commits;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to get commit SHA from GitHub");
+            _logger.LogWarning(ex, "Failed to get commits from GitHub");
             return null;
         }
     }
 
-    private async Task<AzureDevOpsBuild?> GetBuildFromGitHubChecksAsync(string commitSha, int prNumber, CancellationToken cancellationToken)
+    private async Task<bool> HasPackageArtifactsAsync(int buildId, string organization, string project, CancellationToken cancellationToken)
     {
         try
         {
+            var artifactsUrl = $"{BaseUrl}/{organization}/{project}/_apis/build/builds/{buildId}/artifacts?api-version=7.1";
+            
+            var response = await _httpClient.GetAsync(artifactsUrl, cancellationToken);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Failed to fetch artifacts for build {BuildId}: {StatusCode}", buildId, response.StatusCode);
+                return false;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var artifactsResponse = JsonSerializer.Deserialize<AzureDevOpsArtifactsResponse>(content);
+
+            var hasPackageArtifacts = artifactsResponse?.Value?.Any(a => a.Name.Equals("PackageArtifacts", StringComparison.OrdinalIgnoreCase)) ?? false;
+            return hasPackageArtifacts;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error checking for PackageArtifacts on build {BuildId}", buildId);
+            return false;
+        }
+    }
+
+    private async Task<AzureDevOpsBuild?> GetBuildFromCommitChecksAsync(string commitSha, int prNumber, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Get check runs for this commit
             var allCheckRuns = new List<JsonElement>();
             var url = $"https://api.github.com/repos/dotnet/maui/commits/{commitSha}/check-runs?per_page=100";
             var page = 1;
@@ -103,7 +162,7 @@ public class AzureDevOpsService : IAzureDevOpsService
             }
             
             var totalChecks = allCheckRuns.Count;
-            _logger.LogInformation("Found {Count} total check runs for commit across all pages", totalChecks);
+            _logger.LogInformation("Found {Count} total check runs for commit {Sha}", totalChecks, commitSha.Substring(0, 8));
 
             if (totalChecks == 0)
             {
@@ -244,7 +303,9 @@ public class AzureDevOpsService : IAzureDevOpsService
 
             if (nugetArtifact?.Resource?.DownloadUrl == null)
             {
-                throw new Exception($"PackageArtifacts artifact not found for build {buildId}");
+                var availableArtifacts = artifactsResponse?.Value?.Select(a => a.Name).ToList() ?? new List<string>();
+                _logger.LogWarning("PackageArtifacts not found. Available artifacts: {Artifacts}", string.Join(", ", availableArtifacts.Any() ? availableArtifacts : new List<string> { "none" }));
+                throw new Exception($"PackageArtifacts artifact not found for build {buildId}. Available artifacts: {(availableArtifacts.Any() ? string.Join(", ", availableArtifacts) : "none")}. This PR may be from a fork or may not have been configured to generate package artifacts.");
             }
 
             _logger.LogInformation("Downloading artifact from {Url}", nugetArtifact.Resource.DownloadUrl);
