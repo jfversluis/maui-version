@@ -22,36 +22,48 @@ public class AzureDevOpsService : IAzureDevOpsService
 
     public async Task<AzureDevOpsBuild?> GetBuildForPrAsync(int prNumber, CancellationToken cancellationToken = default)
     {
-        // Get all commits from the PR
+        // Strategy 1: Try to find builds via GitHub check runs on PR commits
         var commits = await GetCommitsFromPrAsync(prNumber, cancellationToken);
-        if (commits == null || commits.Count == 0)
+        if (commits != null && commits.Count > 0)
         {
-            _logger.LogError("Could not get commits from GitHub for PR {PrNumber}", prNumber);
-            return null;
+            // Try each commit starting from the most recent until we find one with a build that has PackageArtifacts
+            foreach (var commitSha in commits)
+            {
+                _logger.LogInformation("Checking commit {Sha} for builds with PackageArtifacts", commitSha.Substring(0, 8));
+                var build = await GetBuildFromCommitChecksAsync(commitSha, prNumber, cancellationToken);
+                
+                if (build != null)
+                {
+                    // Verify this build has PackageArtifacts before returning it
+                    if (await HasPackageArtifactsAsync(build.Id, build.Organization, build.Project, cancellationToken))
+                    {
+                        _logger.LogInformation("Found build {BuildId} with PackageArtifacts for commit {Sha}", build.Id, commitSha.Substring(0, 8));
+                        return build;
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Build {BuildId} found but does not have PackageArtifacts, checking earlier commits", build.Id);
+                    }
+                }
+            }
+            
+            _logger.LogInformation("No builds with PackageArtifacts found via GitHub checks, trying Azure DevOps API directly");
         }
 
-        // Try each commit starting from the most recent until we find one with a build that has PackageArtifacts
-        foreach (var commitSha in commits)
+        // Strategy 2: Fallback to Azure DevOps API to search for PR builds directly
+        // This handles merge commits (refs/pull/PR/merge) which don't report checks to GitHub
+        _logger.LogInformation("Searching Azure DevOps directly for PR #{PrNumber} builds", prNumber);
+        var azDoBuild = await GetBuildFromAzureDevOpsAsync(prNumber, cancellationToken);
+        if (azDoBuild != null)
         {
-            _logger.LogInformation("Checking commit {Sha} for builds with PackageArtifacts", commitSha.Substring(0, 8));
-            var build = await GetBuildFromCommitChecksAsync(commitSha, prNumber, cancellationToken);
-            
-            if (build != null)
+            if (await HasPackageArtifactsAsync(azDoBuild.Id, azDoBuild.Organization, azDoBuild.Project, cancellationToken))
             {
-                // Verify this build has PackageArtifacts before returning it
-                if (await HasPackageArtifactsAsync(build.Id, build.Organization, build.Project, cancellationToken))
-                {
-                    _logger.LogInformation("Found build {BuildId} with PackageArtifacts for commit {Sha}", build.Id, commitSha.Substring(0, 8));
-                    return build;
-                }
-                else
-                {
-                    _logger.LogInformation("Build {BuildId} found but does not have PackageArtifacts, checking earlier commits", build.Id);
-                }
+                _logger.LogInformation("Found build {BuildId} with PackageArtifacts via Azure DevOps API", azDoBuild.Id);
+                return azDoBuild;
             }
         }
 
-        _logger.LogWarning("No builds with PackageArtifacts found across {Count} commits in PR #{PrNumber}", commits.Count, prNumber);
+        _logger.LogWarning("No builds with PackageArtifacts found for PR #{PrNumber}", prNumber);
         return null;
     }
 
@@ -89,6 +101,85 @@ public class AzureDevOpsService : IAzureDevOpsService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to get commits from GitHub");
+            return null;
+        }
+    }
+
+    private async Task<AzureDevOpsBuild?> GetBuildFromAzureDevOpsAsync(int prNumber, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Query Azure DevOps for builds associated with this PR
+            // The builds run on merge commits (refs/pull/PR/merge) which don't report to GitHub checks
+            var organization = "dnceng-public";
+            var project = "public";
+            var buildsUrl = $"{BaseUrl}/{organization}/{project}/_apis/build/builds?api-version=7.1&branchName=refs/pull/{prNumber}/merge&$top=10";
+            
+            _logger.LogInformation("Querying Azure DevOps for PR #{PrNumber} builds", prNumber);
+            
+            var response = await _httpClient.GetAsync(buildsUrl, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to fetch builds from Azure DevOps: {StatusCode}", response.StatusCode);
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var buildsResponse = JsonSerializer.Deserialize<JsonElement>(content);
+            
+            if (!buildsResponse.TryGetProperty("value", out var buildsArray))
+            {
+                _logger.LogWarning("No 'value' property in Azure DevOps builds response");
+                return null;
+            }
+            
+            var builds = buildsArray.EnumerateArray().ToList();
+            _logger.LogInformation("Found {Count} builds in Azure DevOps for PR #{PrNumber}", builds.Count, prNumber);
+            
+            // Find the most recent completed build with "maui" in the definition name
+            foreach (var build in builds)
+            {
+                var buildId = build.GetProperty("id").GetInt32();
+                var buildNumber = build.GetProperty("buildNumber").GetString() ?? "";
+                var status = build.GetProperty("status").GetString();
+                var result = build.TryGetProperty("result", out var resultProp) ? resultProp.GetString() : null;
+                var sourceVersion = build.GetProperty("sourceVersion").GetString() ?? "";
+                var sourceBranch = build.GetProperty("sourceBranch").GetString() ?? "";
+                
+                // Get definition name to filter for MAUI builds
+                var definitionName = "";
+                if (build.TryGetProperty("definition", out var definition))
+                {
+                    definitionName = definition.GetProperty("name").GetString() ?? "";
+                }
+                
+                _logger.LogInformation("Evaluating build: {BuildId} ({DefinitionName}), status={Status}, result={Result}", buildId, definitionName, status, result);
+                
+                // Look for completed builds with definition name exactly "maui-pr" (not uitests or devicetests)
+                if (status == "completed" && definitionName == "maui-pr")
+                {
+                    _logger.LogInformation("Found MAUI PR build: {BuildId}, result={Result}", buildId, result);
+                    
+                    return new AzureDevOpsBuild
+                    {
+                        Id = buildId,
+                        BuildNumber = buildNumber,
+                        Status = status,
+                        Result = result,
+                        SourceBranch = sourceBranch,
+                        SourceVersion = sourceVersion,
+                        Organization = organization,
+                        Project = project
+                    };
+                }
+            }
+            
+            _logger.LogWarning("No completed MAUI builds found in Azure DevOps for PR #{PrNumber}", prNumber);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error querying Azure DevOps for PR builds");
             return null;
         }
     }
