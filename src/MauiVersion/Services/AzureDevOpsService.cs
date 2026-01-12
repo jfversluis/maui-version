@@ -66,32 +66,68 @@ public class AzureDevOpsService : IAzureDevOpsService
     {
         try
         {
-            var url = $"https://api.github.com/repos/dotnet/maui/commits/{commitSha}/check-runs";
-            _logger.LogInformation("Fetching check runs for commit {Sha}", commitSha.Substring(0, 8));
-            var response = await _httpClient.GetAsync(url, cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("Failed to fetch check runs from GitHub: {StatusCode}", response.StatusCode);
-                return null;
-            }
-
-            var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var checksData = JsonSerializer.Deserialize<JsonElement>(content);
+            var allCheckRuns = new List<JsonElement>();
+            var url = $"https://api.github.com/repos/dotnet/maui/commits/{commitSha}/check-runs?per_page=100";
+            var page = 1;
             
-            var totalCount = checksData.GetProperty("total_count").GetInt32();
-            _logger.LogInformation("Found {Count} check runs for commit", totalCount);
+            while (true)
+            {
+                var pagedUrl = $"{url}&page={page}";
+                _logger.LogInformation("Fetching check runs for commit {Sha} (page {Page})", commitSha.Substring(0, 8), page);
+                var response = await _httpClient.GetAsync(pagedUrl, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Failed to fetch check runs from GitHub: {StatusCode}", response.StatusCode);
+                    return null;
+                }
 
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var checksData = JsonSerializer.Deserialize<JsonElement>(content);
+                
+                var checkRuns = checksData.GetProperty("check_runs").EnumerateArray().ToList();
+                if (checkRuns.Count == 0)
+                {
+                    break; // No more pages
+                }
+                
+                allCheckRuns.AddRange(checkRuns);
+                
+                // Check if there are more pages
+                var totalCount = checksData.GetProperty("total_count").GetInt32();
+                if (allCheckRuns.Count >= totalCount)
+                {
+                    break; // We have all checks
+                }
+                
+                page++;
+            }
+            
+            var totalChecks = allCheckRuns.Count;
+            _logger.LogInformation("Found {Count} total check runs for commit across all pages", totalChecks);
 
-            if (totalCount == 0)
+            if (totalChecks == 0)
             {
                 _logger.LogWarning("No check runs found for PR #{PrNumber}. Build may not have been triggered yet.", prNumber);
                 return null;
             }
 
-            _logger.LogInformation("Scanning {Count} checks for Azure DevOps builds", totalCount);
+            _logger.LogInformation("Scanning {Count} checks for Azure DevOps builds", totalChecks);
+
+            // Log all check names for debugging
+            var checkNames = new List<string>();
+            foreach (var check in allCheckRuns)
+            {
+                var checkName = check.GetProperty("name").GetString();
+                if (checkName != null)
+                {
+                    checkNames.Add(checkName);
+                }
+            }
+            _logger.LogInformation("Available check runs: {CheckNames}", string.Join(", ", checkNames));
 
             // Find the MAUI-public build check
-            foreach (var check in checksData.GetProperty("check_runs").EnumerateArray())
+            var relevantChecks = new List<(string name, string status, string? conclusion)>();
+            foreach (var check in allCheckRuns)
             {
                 var name = check.GetProperty("name").GetString();
                 var status = check.GetProperty("status").GetString();
@@ -124,42 +160,56 @@ public class AzureDevOpsService : IAzureDevOpsService
                     }
                 }
 
-                if (isRelevantBuild && status == "completed" && detailsUrl != null && detailsUrl.Contains("dev.azure.com"))
+                if (isRelevantBuild)
                 {
-                    _logger.LogInformation("Found build check: name={Name}, status={Status}, conclusion={Conclusion}", name, status, conclusion);
-
-                    // Extract build info from URL
-                    // Patterns:
-                    //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155100
-                    //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155161&view=logs&jobId=...
-                    var match = System.Text.RegularExpressions.Regex.Match(detailsUrl, @"dev\.azure\.com/([^/]+)/([^/]+)/_build/results\?buildId=(\d+)");
-                    if (match.Success)
+                    relevantChecks.Add((name ?? "unknown", status ?? "unknown", conclusion));
+                    
+                    if (status == "completed" && detailsUrl != null && detailsUrl.Contains("dev.azure.com"))
                     {
-                        var org = match.Groups[1].Value;
-                        var project = match.Groups[2].Value;
-                        var buildIdStr = match.Groups[3].Value;
-                        
-                        if (int.TryParse(buildIdStr, out int buildId))
-                        {
-                            _logger.LogInformation("Extracted build info: org={Org}, project={Project}, buildId={BuildId}", org, project, buildId);
+                        _logger.LogInformation("Found build check: name={Name}, status={Status}, conclusion={Conclusion}", name, status, conclusion);
 
-                            return new AzureDevOpsBuild
+                        // Extract build info from URL
+                        // Patterns:
+                        //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155100
+                        //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155161&view=logs&jobId=...
+                        var match = System.Text.RegularExpressions.Regex.Match(detailsUrl, @"dev\.azure\.com/([^/]+)/([^/]+)/_build/results\?buildId=(\d+)");
+                        if (match.Success)
+                        {
+                            var org = match.Groups[1].Value;
+                            var project = match.Groups[2].Value;
+                            var buildIdStr = match.Groups[3].Value;
+                            
+                            if (int.TryParse(buildIdStr, out int buildId))
                             {
-                                Id = buildId,
-                                BuildNumber = $"PR-{prNumber}",
-                                Status = status,
-                                Result = conclusion,
-                                SourceBranch = $"pr/{prNumber}",
-                                SourceVersion = commitSha,
-                                Organization = org,
-                                Project = project
-                            };
+                                _logger.LogInformation("Extracted build info: org={Org}, project={Project}, buildId={BuildId}", org, project, buildId);
+
+                                return new AzureDevOpsBuild
+                                {
+                                    Id = buildId,
+                                    BuildNumber = $"PR-{prNumber}",
+                                    Status = status,
+                                    Result = conclusion,
+                                    SourceBranch = $"pr/{prNumber}",
+                                    SourceVersion = commitSha,
+                                    Organization = org,
+                                    Project = project
+                                };
+                            }
                         }
                     }
                 }
             }
 
-            _logger.LogWarning("Could not find any completed MAUI build checks for this PR");
+            if (relevantChecks.Any())
+            {
+                _logger.LogWarning("Found {Count} relevant MAUI checks, but none were completed with Azure DevOps artifacts. Status: {Checks}",
+                    relevantChecks.Count,
+                    string.Join(", ", relevantChecks.Select(c => $"{c.name} ({c.status}/{c.conclusion ?? "pending"})")));
+            }
+            else
+            {
+                _logger.LogWarning("Could not find any MAUI build checks (maui-pr) for this PR");
+            }
             return null;
         }
         catch (Exception ex)
