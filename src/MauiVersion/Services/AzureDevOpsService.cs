@@ -22,76 +22,262 @@ public class AzureDevOpsService : IAzureDevOpsService
 
     public async Task<AzureDevOpsBuild?> GetBuildForPrAsync(int prNumber, CancellationToken cancellationToken = default)
     {
-        // Get the commit SHA from GitHub PR
-        var commitSha = await GetCommitShaFromGitHubPrAsync(prNumber, cancellationToken);
-        if (commitSha == null)
+        // Strategy 1: Try to find builds via GitHub check runs on PR commits
+        var commits = await GetCommitsFromPrAsync(prNumber, cancellationToken);
+        if (commits != null && commits.Count > 0)
         {
-            _logger.LogError("Could not get commit SHA from GitHub for PR {PrNumber}", prNumber);
-            return null;
+            // Try each commit starting from the most recent until we find one with a build that has PackageArtifacts
+            foreach (var commitSha in commits)
+            {
+                _logger.LogInformation("Checking commit {Sha} for builds with PackageArtifacts", commitSha.Substring(0, 8));
+                var build = await GetBuildFromCommitChecksAsync(commitSha, prNumber, cancellationToken);
+                
+                if (build != null)
+                {
+                    // Verify this build has PackageArtifacts before returning it
+                    if (await HasPackageArtifactsAsync(build.Id, build.Organization, build.Project, cancellationToken))
+                    {
+                        _logger.LogInformation("Found build {BuildId} with PackageArtifacts for commit {Sha}", build.Id, commitSha.Substring(0, 8));
+                        return build;
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Build {BuildId} found but does not have PackageArtifacts, checking earlier commits", build.Id);
+                    }
+                }
+            }
+            
+            _logger.LogInformation("No builds with PackageArtifacts found via GitHub checks, trying Azure DevOps API directly");
         }
 
-        // Get the build info from GitHub Checks API
-        return await GetBuildFromGitHubChecksAsync(commitSha, prNumber, cancellationToken);
+        // Strategy 2: Fallback to Azure DevOps API to search for PR builds directly
+        // This handles merge commits (refs/pull/PR/merge) which don't report checks to GitHub
+        _logger.LogInformation("Searching Azure DevOps directly for PR #{PrNumber} builds", prNumber);
+        var azDoBuild = await GetBuildFromAzureDevOpsAsync(prNumber, cancellationToken);
+        if (azDoBuild != null)
+        {
+            if (await HasPackageArtifactsAsync(azDoBuild.Id, azDoBuild.Organization, azDoBuild.Project, cancellationToken))
+            {
+                _logger.LogInformation("Found build {BuildId} with PackageArtifacts via Azure DevOps API", azDoBuild.Id);
+                return azDoBuild;
+            }
+        }
+
+        _logger.LogWarning("No builds with PackageArtifacts found for PR #{PrNumber}", prNumber);
+        return null;
     }
 
-    private async Task<string?> GetCommitShaFromGitHubPrAsync(int prNumber, CancellationToken cancellationToken)
+    private async Task<List<string>?> GetCommitsFromPrAsync(int prNumber, CancellationToken cancellationToken)
     {
         try
         {
-            var url = $"https://api.github.com/repos/dotnet/maui/pulls/{prNumber}";
+            var url = $"https://api.github.com/repos/dotnet/maui/pulls/{prNumber}/commits?per_page=100";
             
             var response = await _httpClient.GetAsync(url, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Failed to fetch PR from GitHub: {StatusCode}", response.StatusCode);
+                _logger.LogWarning("Failed to fetch commits from GitHub: {StatusCode}", response.StatusCode);
                 return null;
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var prData = JsonSerializer.Deserialize<JsonElement>(content);
+            var commitsData = JsonSerializer.Deserialize<JsonElement>(content);
             
-            var sha = prData.GetProperty("head").GetProperty("sha").GetString();
-            _logger.LogInformation("Found commit SHA from GitHub PR: {Sha}", sha);
+            var commits = new List<string>();
+            foreach (var commit in commitsData.EnumerateArray())
+            {
+                var sha = commit.GetProperty("sha").GetString();
+                if (sha != null)
+                {
+                    commits.Add(sha);
+                }
+            }
 
-            return sha;
+            // Return commits in reverse order (most recent first)
+            commits.Reverse();
+            _logger.LogInformation("Found {Count} commits in PR #{PrNumber}", commits.Count, prNumber);
+            return commits;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to get commit SHA from GitHub");
+            _logger.LogWarning(ex, "Failed to get commits from GitHub");
             return null;
         }
     }
 
-    private async Task<AzureDevOpsBuild?> GetBuildFromGitHubChecksAsync(string commitSha, int prNumber, CancellationToken cancellationToken)
+    private async Task<AzureDevOpsBuild?> GetBuildFromAzureDevOpsAsync(int prNumber, CancellationToken cancellationToken)
     {
         try
         {
-            var url = $"https://api.github.com/repos/dotnet/maui/commits/{commitSha}/check-runs";
-            _logger.LogInformation("Fetching check runs for commit {Sha}", commitSha.Substring(0, 8));
-            var response = await _httpClient.GetAsync(url, cancellationToken);
+            // Query Azure DevOps for builds associated with this PR
+            // The builds run on merge commits (refs/pull/PR/merge) which don't report to GitHub checks
+            var organization = "dnceng-public";
+            var project = "public";
+            var buildsUrl = $"{BaseUrl}/{organization}/{project}/_apis/build/builds?api-version=7.1&branchName=refs/pull/{prNumber}/merge&$top=10";
+            
+            _logger.LogInformation("Querying Azure DevOps for PR #{PrNumber} builds", prNumber);
+            
+            var response = await _httpClient.GetAsync(buildsUrl, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("Failed to fetch check runs from GitHub: {StatusCode}", response.StatusCode);
+                _logger.LogWarning("Failed to fetch builds from Azure DevOps: {StatusCode}", response.StatusCode);
                 return null;
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken);
-            var checksData = JsonSerializer.Deserialize<JsonElement>(content);
+            var buildsResponse = JsonSerializer.Deserialize<JsonElement>(content);
             
-            var totalCount = checksData.GetProperty("total_count").GetInt32();
-            _logger.LogInformation("Found {Count} check runs for commit", totalCount);
+            if (!buildsResponse.TryGetProperty("value", out var buildsArray))
+            {
+                _logger.LogWarning("No 'value' property in Azure DevOps builds response");
+                return null;
+            }
+            
+            var builds = buildsArray.EnumerateArray().ToList();
+            _logger.LogInformation("Found {Count} builds in Azure DevOps for PR #{PrNumber}", builds.Count, prNumber);
+            
+            // Find the most recent completed build with "maui" in the definition name
+            foreach (var build in builds)
+            {
+                var buildId = build.GetProperty("id").GetInt32();
+                var buildNumber = build.GetProperty("buildNumber").GetString() ?? "";
+                var status = build.GetProperty("status").GetString();
+                var result = build.TryGetProperty("result", out var resultProp) ? resultProp.GetString() : null;
+                var sourceVersion = build.GetProperty("sourceVersion").GetString() ?? "";
+                var sourceBranch = build.GetProperty("sourceBranch").GetString() ?? "";
+                
+                // Get definition name to filter for MAUI builds
+                var definitionName = "";
+                if (build.TryGetProperty("definition", out var definition))
+                {
+                    definitionName = definition.GetProperty("name").GetString() ?? "";
+                }
+                
+                _logger.LogInformation("Evaluating build: {BuildId} ({DefinitionName}), status={Status}, result={Result}", buildId, definitionName, status, result);
+                
+                // Look for completed builds with definition name exactly "maui-pr" (not uitests or devicetests)
+                if (status == "completed" && definitionName == "maui-pr")
+                {
+                    _logger.LogInformation("Found MAUI PR build: {BuildId}, result={Result}", buildId, result);
+                    
+                    return new AzureDevOpsBuild
+                    {
+                        Id = buildId,
+                        BuildNumber = buildNumber,
+                        Status = status,
+                        Result = result,
+                        SourceBranch = sourceBranch,
+                        SourceVersion = sourceVersion,
+                        Organization = organization,
+                        Project = project
+                    };
+                }
+            }
+            
+            _logger.LogWarning("No completed MAUI builds found in Azure DevOps for PR #{PrNumber}", prNumber);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error querying Azure DevOps for PR builds");
+            return null;
+        }
+    }
 
+    private async Task<bool> HasPackageArtifactsAsync(int buildId, string organization, string project, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var artifactsUrl = $"{BaseUrl}/{organization}/{project}/_apis/build/builds/{buildId}/artifacts?api-version=7.1";
+            
+            var response = await _httpClient.GetAsync(artifactsUrl, cancellationToken);
+            
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogDebug("Failed to fetch artifacts for build {BuildId}: {StatusCode}", buildId, response.StatusCode);
+                return false;
+            }
 
-            if (totalCount == 0)
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            var artifactsResponse = JsonSerializer.Deserialize<AzureDevOpsArtifactsResponse>(content);
+
+            var hasPackageArtifacts = artifactsResponse?.Value?.Any(a => a.Name.Equals("PackageArtifacts", StringComparison.OrdinalIgnoreCase)) ?? false;
+            return hasPackageArtifacts;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error checking for PackageArtifacts on build {BuildId}", buildId);
+            return false;
+        }
+    }
+
+    private async Task<AzureDevOpsBuild?> GetBuildFromCommitChecksAsync(string commitSha, int prNumber, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Get check runs for this commit
+            var allCheckRuns = new List<JsonElement>();
+            var url = $"https://api.github.com/repos/dotnet/maui/commits/{commitSha}/check-runs?per_page=100";
+            var page = 1;
+            
+            while (true)
+            {
+                var pagedUrl = $"{url}&page={page}";
+                _logger.LogInformation("Fetching check runs for commit {Sha} (page {Page})", commitSha.Substring(0, 8), page);
+                var response = await _httpClient.GetAsync(pagedUrl, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("Failed to fetch check runs from GitHub: {StatusCode}", response.StatusCode);
+                    return null;
+                }
+
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var checksData = JsonSerializer.Deserialize<JsonElement>(content);
+                
+                var checkRuns = checksData.GetProperty("check_runs").EnumerateArray().ToList();
+                if (checkRuns.Count == 0)
+                {
+                    break; // No more pages
+                }
+                
+                allCheckRuns.AddRange(checkRuns);
+                
+                // Check if there are more pages
+                var totalCount = checksData.GetProperty("total_count").GetInt32();
+                if (allCheckRuns.Count >= totalCount)
+                {
+                    break; // We have all checks
+                }
+                
+                page++;
+            }
+            
+            var totalChecks = allCheckRuns.Count;
+            _logger.LogInformation("Found {Count} total check runs for commit {Sha}", totalChecks, commitSha.Substring(0, 8));
+
+            if (totalChecks == 0)
             {
                 _logger.LogWarning("No check runs found for PR #{PrNumber}. Build may not have been triggered yet.", prNumber);
                 return null;
             }
 
-            _logger.LogInformation("Scanning {Count} checks for Azure DevOps builds", totalCount);
+            _logger.LogInformation("Scanning {Count} checks for Azure DevOps builds", totalChecks);
+
+            // Log all check names for debugging
+            var checkNames = new List<string>();
+            foreach (var check in allCheckRuns)
+            {
+                var checkName = check.GetProperty("name").GetString();
+                if (checkName != null)
+                {
+                    checkNames.Add(checkName);
+                }
+            }
+            _logger.LogInformation("Available check runs: {CheckNames}", string.Join(", ", checkNames));
 
             // Find the MAUI-public build check
-            foreach (var check in checksData.GetProperty("check_runs").EnumerateArray())
+            var relevantChecks = new List<(string name, string status, string? conclusion)>();
+            foreach (var check in allCheckRuns)
             {
                 var name = check.GetProperty("name").GetString();
                 var status = check.GetProperty("status").GetString();
@@ -124,42 +310,56 @@ public class AzureDevOpsService : IAzureDevOpsService
                     }
                 }
 
-                if (isRelevantBuild && status == "completed" && detailsUrl != null && detailsUrl.Contains("dev.azure.com"))
+                if (isRelevantBuild)
                 {
-                    _logger.LogInformation("Found build check: name={Name}, status={Status}, conclusion={Conclusion}", name, status, conclusion);
-
-                    // Extract build info from URL
-                    // Patterns:
-                    //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155100
-                    //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155161&view=logs&jobId=...
-                    var match = System.Text.RegularExpressions.Regex.Match(detailsUrl, @"dev\.azure\.com/([^/]+)/([^/]+)/_build/results\?buildId=(\d+)");
-                    if (match.Success)
+                    relevantChecks.Add((name ?? "unknown", status ?? "unknown", conclusion));
+                    
+                    if (status == "completed" && detailsUrl != null && detailsUrl.Contains("dev.azure.com"))
                     {
-                        var org = match.Groups[1].Value;
-                        var project = match.Groups[2].Value;
-                        var buildIdStr = match.Groups[3].Value;
-                        
-                        if (int.TryParse(buildIdStr, out int buildId))
-                        {
-                            _logger.LogInformation("Extracted build info: org={Org}, project={Project}, buildId={BuildId}", org, project, buildId);
+                        _logger.LogInformation("Found build check: name={Name}, status={Status}, conclusion={Conclusion}", name, status, conclusion);
 
-                            return new AzureDevOpsBuild
+                        // Extract build info from URL
+                        // Patterns:
+                        //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155100
+                        //  - https://dev.azure.com/dnceng-public/public/_build/results?buildId=155161&view=logs&jobId=...
+                        var match = System.Text.RegularExpressions.Regex.Match(detailsUrl, @"dev\.azure\.com/([^/]+)/([^/]+)/_build/results\?buildId=(\d+)");
+                        if (match.Success)
+                        {
+                            var org = match.Groups[1].Value;
+                            var project = match.Groups[2].Value;
+                            var buildIdStr = match.Groups[3].Value;
+                            
+                            if (int.TryParse(buildIdStr, out int buildId))
                             {
-                                Id = buildId,
-                                BuildNumber = $"PR-{prNumber}",
-                                Status = status,
-                                Result = conclusion,
-                                SourceBranch = $"pr/{prNumber}",
-                                SourceVersion = commitSha,
-                                Organization = org,
-                                Project = project
-                            };
+                                _logger.LogInformation("Extracted build info: org={Org}, project={Project}, buildId={BuildId}", org, project, buildId);
+
+                                return new AzureDevOpsBuild
+                                {
+                                    Id = buildId,
+                                    BuildNumber = $"PR-{prNumber}",
+                                    Status = status,
+                                    Result = conclusion,
+                                    SourceBranch = $"pr/{prNumber}",
+                                    SourceVersion = commitSha,
+                                    Organization = org,
+                                    Project = project
+                                };
+                            }
                         }
                     }
                 }
             }
 
-            _logger.LogWarning("Could not find any completed MAUI build checks for this PR");
+            if (relevantChecks.Any())
+            {
+                _logger.LogWarning("Found {Count} relevant MAUI checks, but none were completed with Azure DevOps artifacts. Status: {Checks}",
+                    relevantChecks.Count,
+                    string.Join(", ", relevantChecks.Select(c => $"{c.name} ({c.status}/{c.conclusion ?? "pending"})")));
+            }
+            else
+            {
+                _logger.LogWarning("Could not find any MAUI build checks (maui-pr) for this PR");
+            }
             return null;
         }
         catch (Exception ex)
@@ -194,7 +394,9 @@ public class AzureDevOpsService : IAzureDevOpsService
 
             if (nugetArtifact?.Resource?.DownloadUrl == null)
             {
-                throw new Exception($"PackageArtifacts artifact not found for build {buildId}");
+                var availableArtifacts = artifactsResponse?.Value?.Select(a => a.Name).ToList() ?? new List<string>();
+                _logger.LogWarning("PackageArtifacts not found. Available artifacts: {Artifacts}", string.Join(", ", availableArtifacts.Any() ? availableArtifacts : new List<string> { "none" }));
+                throw new Exception($"PackageArtifacts artifact not found for build {buildId}. Available artifacts: {(availableArtifacts.Any() ? string.Join(", ", availableArtifacts) : "none")}. This PR may be from a fork or may not have been configured to generate package artifacts.");
             }
 
             _logger.LogInformation("Downloading artifact from {Url}", nugetArtifact.Resource.DownloadUrl);
