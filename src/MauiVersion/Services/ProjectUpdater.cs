@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Xml;
 using System.Xml.Linq;
 using MauiVersion.Models;
 using Microsoft.Extensions.Logging;
@@ -451,7 +452,19 @@ public class ProjectUpdater : IProjectUpdater
                 new XAttribute("Version", version)));
         }
 
-        await Task.Run(() => doc.Save(projectPath), cancellationToken);
+        var settings = new XmlWriterSettings
+        {
+            OmitXmlDeclaration = true,
+            Indent = true,
+            IndentChars = "  ",
+            Encoding = new UTF8Encoding(false)
+        };
+        
+        await Task.Run(() =>
+        {
+            using var writer = XmlWriter.Create(projectPath, settings);
+            doc.Save(writer);
+        }, cancellationToken);
         _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
     }
 
