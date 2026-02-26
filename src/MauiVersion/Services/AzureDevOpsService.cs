@@ -371,6 +371,68 @@ public class AzureDevOpsService : IAzureDevOpsService
 
 
 
+    public async Task<bool> IsBuildInProgressForPrAsync(int prNumber, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var organization = "dnceng-public";
+            var project = "public";
+            var buildsUrl = $"{BaseUrl}/{organization}/{project}/_apis/build/builds?api-version=7.1&branchName=refs/pull/{prNumber}/merge&$top=10";
+            
+            _logger.LogInformation("Checking for in-progress builds for PR #{PrNumber}", prNumber);
+            
+            var response = await _httpClient.GetAsync(buildsUrl, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Failed to check build status: {StatusCode}", response.StatusCode);
+                return false;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            return HasInProgressMauiPrBuild(content);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error checking for in-progress builds for PR #{PrNumber}", prNumber);
+            return false;
+        }
+    }
+
+    internal static bool HasInProgressMauiPrBuild(string buildsJsonContent)
+    {
+        try
+        {
+            var buildsResponse = JsonSerializer.Deserialize<JsonElement>(buildsJsonContent);
+            
+            if (!buildsResponse.TryGetProperty("value", out var buildsArray))
+                return false;
+
+            foreach (var build in buildsArray.EnumerateArray())
+            {
+                var status = build.GetProperty("status").GetString();
+                var definitionName = "";
+                if (build.TryGetProperty("definition", out var definition))
+                {
+                    definitionName = definition.GetProperty("name").GetString() ?? "";
+                }
+
+                if (definitionName == "maui-pr" && 
+                    status is "inProgress" or "notStarted" or "postponed")
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+
+
     public async Task<string> DownloadArtifactAsync(int buildId, string organization, string project, CancellationToken cancellationToken = default)
     {
         try

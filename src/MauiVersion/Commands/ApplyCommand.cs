@@ -271,13 +271,34 @@ public class ApplyCommand : BaseCommand
         // Get build info first (without spinner so we can see debug output)
         AnsiConsole.MarkupLine($"[yellow]Looking for build artifacts for PR #{prNumber}...[/]");
         var build = await _azureDevOpsService.GetBuildForPrAsync(prNumber, cancellationToken);
+        var buildInProgress = await _azureDevOpsService.IsBuildInProgressForPrAsync(prNumber, cancellationToken);
         
         if (build == null)
         {
-            throw new Exception($"No successful build found for PR #{prNumber}. " +
-                $"The PR may not have triggered CI builds yet (draft PRs don't auto-trigger builds), " +
-                $"or the build may still be in progress or failed. " +
-                $"Check the PR on GitHub to see if builds have completed: https://github.com/dotnet/maui/pull/{prNumber}");
+            var message = $"No completed build found for PR #{prNumber}. ";
+            if (buildInProgress)
+            {
+                message += "A build is currently in progress. Please wait for it to complete and try again. ";
+            }
+            else
+            {
+                message += "The PR may not have triggered CI builds yet (draft PRs don't auto-trigger builds), " +
+                    "or the build may have failed. ";
+            }
+            message += $"Check the PR on GitHub to see build status: https://github.com/dotnet/maui/pull/{prNumber}";
+            throw new Exception(message);
+        }
+
+        if (buildInProgress)
+        {
+            AnsiConsole.MarkupLine($"[yellow]⚠[/] A build is currently in progress for PR #{prNumber}.");
+            AnsiConsole.MarkupLine("[yellow]⚠[/] The artifacts you'll receive may be from a previous build and not include the latest changes.");
+            
+            if (!AnsiConsole.Confirm("Do you want to proceed with the available artifacts?"))
+            {
+                AnsiConsole.MarkupLine("[yellow]→[/] Aborted. Try again when the build completes.");
+                return;
+            }
         }
 
         AnsiConsole.MarkupLine($"[green]✓[/] Found build: {build.BuildNumber}");
