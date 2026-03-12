@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 
 namespace MauiVersion.Services;
@@ -40,26 +39,43 @@ public class TargetFrameworkService : ITargetFrameworkService
     {
         _logger.LogInformation("Updating TargetFrameworks to .NET {Version}", newDotNetVersion);
 
-        var doc = await Task.Run(() => XDocument.Load(projectPath), cancellationToken);
+        var rawBytes = await File.ReadAllBytesAsync(projectPath, cancellationToken);
+        var hasBom = rawBytes.Length >= 3 && rawBytes[0] == 0xEF && rawBytes[1] == 0xBB && rawBytes[2] == 0xBF;
+        var content = await File.ReadAllTextAsync(projectPath, cancellationToken);
+        var originalContent = content;
 
-        // Update all TargetFrameworks and TargetFramework elements (including conditional ones)
-        var tfmElements = doc.Descendants("TargetFrameworks").Concat(doc.Descendants("TargetFramework")).ToList();
+        // Find all comment regions to exclude from replacement
+        var commentRanges = Regex.Matches(content, @"<!--[\s\S]*?-->")
+            .Select(m => (Start: m.Index, End: m.Index + m.Length))
+            .ToList();
 
-        if (tfmElements.Any())
+        bool IsInsideComment(int index) => commentRanges.Any(r => index >= r.Start && index < r.End);
+
+        // Use text-based replacement to preserve original formatting/indentation
+        // Only replace matches that are not inside comments
+        var pattern = @"(<TargetFrameworks?\b[^>]*>)([^<]*)(</TargetFrameworks?>)";
+        var matches = Regex.Matches(content, pattern).Cast<Match>().Reverse().ToList();
+        
+        foreach (var m in matches)
         {
-            foreach (var tfmElement in tfmElements)
-            {
-                var currentValue = tfmElement.Value;
-                var updatedValue = Regex.Replace(currentValue, @"net\d+\.\d+", $"net{newDotNetVersion}");
-                
-                if (currentValue != updatedValue)
-                {
-                    tfmElement.Value = updatedValue;
-                    _logger.LogInformation("Updated TargetFrameworks from {Old} to {New}", currentValue, updatedValue);
-                }
-            }
+            if (IsInsideComment(m.Index))
+                continue;
 
-            await Task.Run(() => doc.Save(projectPath), cancellationToken);
+            var currentValue = m.Groups[2].Value;
+            var updatedValue = Regex.Replace(currentValue, @"net\d+\.\d+", $"net{newDotNetVersion}");
+
+            if (currentValue != updatedValue)
+            {
+                content = content.Remove(m.Index, m.Length)
+                    .Insert(m.Index, m.Groups[1].Value + updatedValue + m.Groups[3].Value);
+                _logger.LogInformation("Updated TargetFrameworks from {Old} to {New}", currentValue, updatedValue);
+            }
+        }
+
+        if (content != originalContent)
+        {
+            var encoding = new System.Text.UTF8Encoding(hasBom);
+            await File.WriteAllTextAsync(projectPath, content, encoding, cancellationToken);
             _logger.LogInformation("Note: You may need to update other package dependencies to match .NET {Version}", newDotNetVersion);
         }
     }

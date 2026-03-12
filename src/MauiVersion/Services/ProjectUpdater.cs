@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using MauiVersion.Models;
@@ -331,11 +332,15 @@ public class ProjectUpdater : IProjectUpdater
             }
             
             // Get or create the packageSources element
-            packageSources = configElement.Element("packageSources");
-            if (packageSources == null)
+            var existingPackageSources = configElement.Element("packageSources");
+            if (existingPackageSources == null)
             {
                 packageSources = new XElement("packageSources");
                 configElement.Add(packageSources);
+            }
+            else
+            {
+                packageSources = existingPackageSources;
             }
             
             // Remove any existing <clear/> element to avoid breaking parent configs
@@ -419,53 +424,167 @@ public class ProjectUpdater : IProjectUpdater
 
     private async Task UpdatePackageVersionInProjectAsync(string projectPath, string packageName, string version, CancellationToken cancellationToken)
     {
-        var doc = await Task.Run(() => XDocument.Load(projectPath), cancellationToken);
-        
-        var packageReference = doc.Descendants("PackageReference")
-            .FirstOrDefault(e => e.Attribute("Include")?.Value == packageName);
+        var rawBytes = await File.ReadAllBytesAsync(projectPath, cancellationToken);
+        var hasBom = rawBytes.Length >= 3 && rawBytes[0] == 0xEF && rawBytes[1] == 0xBB && rawBytes[2] == 0xBF;
+        var content = await File.ReadAllTextAsync(projectPath, cancellationToken);
+        var escapedName = Regex.Escape(packageName);
 
-        if (packageReference != null)
+        // Detect line ending style for consistent writes
+        var lineEnding = content.Contains("\r\n") ? "\r\n" : "\n";
+
+        // Find all comment regions to exclude from matching
+        var commentRanges = Regex.Matches(content, @"<!--[\s\S]*?-->")
+            .Select(m => (Start: m.Index, End: m.Index + m.Length))
+            .ToList();
+
+        bool IsInsideComment(int index) => commentRanges.Any(r => index >= r.Start && index < r.End);
+
+        // Try text-based replacement to preserve original formatting/indentation
+        // Patterns handle attributes with > or < in values by matching quoted strings properly
+        // Pattern 1: Include comes before Version
+        var pattern1 = @"(<PackageReference\b(?:\s+\w+\s*=\s*""[^""]*"")*?\s+Include\s*=\s*""" + escapedName + @"""(?:\s+\w+\s*=\s*""[^""]*"")*?\s+Version\s*=\s*"")[^""]*(""(?:\s+\w+\s*=\s*""[^""]*"")*?\s*/?>)";
+        // Pattern 2: Version comes before Include
+        var pattern2 = @"(<PackageReference\b(?:\s+\w+\s*=\s*""[^""]*"")*?\s+Version\s*=\s*"")[^""]*(""(?:\s+\w+\s*=\s*""[^""]*"")*?\s+Include\s*=\s*""" + escapedName + @"""(?:\s+\w+\s*=\s*""[^""]*"")*?\s*/?>)";
+
+        // Find first non-commented match for pattern1
+        var match1 = Regex.Matches(content, pattern1, RegexOptions.Singleline)
+            .FirstOrDefault(m => !IsInsideComment(m.Index));
+        if (match1 != null)
         {
-            var versionAttr = packageReference.Attribute("Version");
-            if (versionAttr != null)
+            content = content.Remove(match1.Index, match1.Length)
+                .Insert(match1.Index, match1.Groups[1].Value + version + match1.Groups[2].Value);
+            await WriteTextPreservingBomAsync(projectPath, content, hasBom, cancellationToken);
+            _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
+            return;
+        }
+
+        // Find first non-commented match for pattern2
+        var match2 = Regex.Matches(content, pattern2, RegexOptions.Singleline)
+            .FirstOrDefault(m => !IsInsideComment(m.Index));
+        if (match2 != null)
+        {
+            content = content.Remove(match2.Index, match2.Length)
+                .Insert(match2.Index, match2.Groups[1].Value + version + match2.Groups[2].Value);
+            await WriteTextPreservingBomAsync(projectPath, content, hasBom, cancellationToken);
+            _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
+            return;
+        }
+
+        // Check if PackageReference exists but with unusual structure (e.g. Version as child element)
+        var existsPattern = @"<PackageReference\b[^>]*\bInclude\s*=\s*""" + escapedName + @"""";
+        var existsMatch = Regex.Matches(content, existsPattern, RegexOptions.Singleline)
+            .FirstOrDefault(m => !IsInsideComment(m.Index));
+        if (existsMatch != null)
+        {
+            // Use XDocument for this edge case
+            var hasXmlDeclaration = content.TrimStart().StartsWith("<?xml", StringComparison.OrdinalIgnoreCase);
+            var doc = XDocument.Parse(content, LoadOptions.PreserveWhitespace);
+            var packageReference = doc.Descendants("PackageReference")
+                .FirstOrDefault(e => e.Attribute("Include")?.Value == packageName);
+
+            if (packageReference != null)
             {
-                versionAttr.Value = version;
+                // Check for Version as child element first
+                var versionElement = packageReference.Element("Version");
+                if (versionElement != null)
+                {
+                    versionElement.Value = version;
+                }
+                else
+                {
+                    var versionAttr = packageReference.Attribute("Version");
+                    if (versionAttr != null)
+                        versionAttr.Value = version;
+                    else
+                        packageReference.Add(new XAttribute("Version", version));
+                }
             }
-            else
+
+            // Write to MemoryStream to get correct encoding in XML declaration
+            using var ms = new MemoryStream();
+            var settings = new XmlWriterSettings
             {
-                packageReference.Add(new XAttribute("Version", version));
+                OmitXmlDeclaration = !hasXmlDeclaration,
+                Indent = false,
+                NewLineHandling = NewLineHandling.None,
+                NewLineChars = lineEnding,
+                Encoding = new UTF8Encoding(hasBom)
+            };
+            using (var writer = XmlWriter.Create(ms, settings))
+            {
+                doc.Save(writer);
+            }
+            var result = new UTF8Encoding(hasBom).GetString(ms.ToArray());
+            // Fix line endings (XDocument normalizes to \n)
+            if (lineEnding == "\r\n" && !result.Contains("\r\n"))
+            {
+                result = result.Replace("\n", "\r\n");
+            }
+            await WriteTextPreservingBomAsync(projectPath, result, hasBom, cancellationToken);
+            _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
+            return;
+        }
+
+        // Package doesn't exist yet — insert new PackageReference via text manipulation
+        var newPackageRef = $"<PackageReference Include=\"{packageName}\" Version=\"{version}\" />";
+
+        // Detect child-element indentation from existing PackageReferences
+        var childIndentMatch = Regex.Match(content, @"(?:\r?\n)([ \t]+)<PackageReference\b");
+        if (!childIndentMatch.Success)
+            childIndentMatch = Regex.Match(content, @"(?:\r?\n)([ \t]+)<(?:Maui\w+|Compile|Content|None|Reference)\b");
+        var childIndent = childIndentMatch.Success ? childIndentMatch.Groups[1].Value : "    ";
+
+        // Find an ItemGroup that contains PackageReferences (preferred) or any ItemGroup
+        var packageRefItemGroupEnd = Regex.Matches(content, @"<PackageReference\b[^>]*/?>[\s\S]*?(</ItemGroup>)")
+            .Cast<Match>()
+            .FirstOrDefault(m => !IsInsideComment(m.Index));
+        
+        if (packageRefItemGroupEnd != null)
+        {
+            // Insert before the </ItemGroup> that contains PackageReferences
+            var closeTagMatch = Regex.Match(content.Substring(packageRefItemGroupEnd.Index), @"([ \t]*)(</ItemGroup>)");
+            if (closeTagMatch.Success)
+            {
+                var insertPos = packageRefItemGroupEnd.Index + closeTagMatch.Index;
+                content = content.Insert(insertPos, childIndent + newPackageRef + lineEnding);
+                await WriteTextPreservingBomAsync(projectPath, content, hasBom, cancellationToken);
+                _logger.LogInformation("Added {Package} version {Version} to {Project}", packageName, version, projectPath);
+                return;
             }
         }
-        else
-        {
-            var itemGroup = doc.Descendants("ItemGroup").FirstOrDefault()
-                ?? doc.Root?.Elements("ItemGroup").FirstOrDefault();
-            
-            if (itemGroup == null)
-            {
-                itemGroup = new XElement("ItemGroup");
-                doc.Root?.Add(itemGroup);
-            }
 
-            itemGroup.Add(new XElement("PackageReference",
-                new XAttribute("Include", packageName),
-                new XAttribute("Version", version)));
+        // Fallback: find any </ItemGroup> not inside a comment
+        var itemGroupEnds = Regex.Matches(content, @"([ \t]*)(</ItemGroup>)");
+        var validItemGroupEnd = itemGroupEnds.Cast<Match>().FirstOrDefault(m => !IsInsideComment(m.Index));
+        if (validItemGroupEnd != null)
+        {
+            var insertPos = validItemGroupEnd.Index;
+            content = content.Insert(insertPos, childIndent + newPackageRef + lineEnding);
+            await WriteTextPreservingBomAsync(projectPath, content, hasBom, cancellationToken);
+            _logger.LogInformation("Added {Package} version {Version} to {Project}", packageName, version, projectPath);
+            return;
         }
 
-        var settings = new XmlWriterSettings
+        // No ItemGroup — create one before </Project>
+        var parentIndentMatch = Regex.Match(content, @"(?:\r?\n)([ \t]+)<(?:PropertyGroup|ItemGroup)\b");
+        var parentIndent = parentIndentMatch.Success ? parentIndentMatch.Groups[1].Value : "  ";
+        var projectEndMatch = Regex.Match(content, @"([ \t]*)(</Project>)");
+        if (projectEndMatch.Success)
         {
-            OmitXmlDeclaration = true,
-            Indent = true,
-            IndentChars = "  ",
-            Encoding = new UTF8Encoding(false)
-        };
-        
-        await Task.Run(() =>
-        {
-            using var writer = XmlWriter.Create(projectPath, settings);
-            doc.Save(writer);
-        }, cancellationToken);
-        _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
+            var newGroup = $"{lineEnding}{parentIndent}<ItemGroup>{lineEnding}{childIndent}{newPackageRef}{lineEnding}{parentIndent}</ItemGroup>{lineEnding}";
+            content = content.Insert(projectEndMatch.Index, newGroup);
+            await WriteTextPreservingBomAsync(projectPath, content, hasBom, cancellationToken);
+            _logger.LogInformation("Added {Package} version {Version} to {Project}", packageName, version, projectPath);
+            return;
+        }
+
+        _logger.LogWarning("Could not find insertion point for {Package} in {Project}", packageName, projectPath);
+    }
+
+    private static async Task WriteTextPreservingBomAsync(string path, string content, bool hasBom, CancellationToken cancellationToken)
+    {
+        var encoding = new UTF8Encoding(hasBom);
+        await File.WriteAllTextAsync(path, content, encoding, cancellationToken);
     }
 
     private async Task<bool> PromptForTargetFrameworkUpdateAsync(string? currentVersion, string? requiredVersion, CancellationToken cancellationToken)
