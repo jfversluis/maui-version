@@ -430,7 +430,7 @@ public class ProjectUpdater : IProjectUpdater
 
         if (Regex.IsMatch(content, pattern1, RegexOptions.Singleline))
         {
-            content = Regex.Replace(content, pattern1, "${1}" + version + "${2}", RegexOptions.Singleline);
+            content = Regex.Replace(content, pattern1, m => m.Groups[1].Value + version + m.Groups[2].Value, RegexOptions.Singleline);
             await File.WriteAllTextAsync(projectPath, content, cancellationToken);
             _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
             return;
@@ -438,7 +438,7 @@ public class ProjectUpdater : IProjectUpdater
 
         if (Regex.IsMatch(content, pattern2, RegexOptions.Singleline))
         {
-            content = Regex.Replace(content, pattern2, "${1}" + version + "${2}", RegexOptions.Singleline);
+            content = Regex.Replace(content, pattern2, m => m.Groups[1].Value + version + m.Groups[2].Value, RegexOptions.Singleline);
             await File.WriteAllTextAsync(projectPath, content, cancellationToken);
             _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
             return;
@@ -478,7 +478,7 @@ public class ProjectUpdater : IProjectUpdater
                 new XAttribute("Version", version)));
         }
 
-        await File.WriteAllTextAsync(projectPath, doc.ToString(), cancellationToken);
+        await File.WriteAllTextAsync(projectPath, doc.ToString(SaveOptions.DisableFormatting), cancellationToken);
         _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
     }
 
