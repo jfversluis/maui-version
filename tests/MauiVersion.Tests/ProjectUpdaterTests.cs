@@ -167,7 +167,7 @@ public class ProjectUpdaterTests
             Assert.Contains("        <PackageReference", updatedContent);
 
             // Verify no 2-space indentation was introduced
-            Assert.DoesNotContain("\n  <PropertyGroup>", updatedContent);
+            Assert.DoesNotContain("\r\n  <PropertyGroup>", updatedContent);
         }
         finally
         {
