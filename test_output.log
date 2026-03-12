@@ -1,0 +1,142 @@
+Build started 03/12/2026 16:24:05.
+     1>Project "/home/runner/work/maui-version/maui-version/MauiVersion.slnx" on node 1 (Restore target(s)).
+     1>ValidateSolutionConfiguration:
+         Building solution configuration "Debug|Any CPU".
+       _GetAllRestoreProjectPathItems:
+         Determining projects to restore...
+     1>Project "/home/runner/work/maui-version/maui-version/MauiVersion.slnx" (1) is building "/home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj" (3:5) on node 2 (_GenerateProjectRestoreGraph target(s)).
+     3>AddPrunePackageReferences:
+         Loading prune package data from PrunePackageData folder
+         Failed to load prune package data from PrunePackageData folder, loading from targeting packs instead
+         Looking for targeting packs in /usr/share/dotnet/packs/Microsoft.NETCore.App.Ref
+         Pack directories found: /usr/share/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.2
+         Found package overrides file /usr/share/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.2/data/PackageOverrides.txt
+     3>Done Building Project "/home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj" (_GenerateProjectRestoreGraph target(s)).
+     1>Restore:
+         X.509 certificate chain validation will use the fallback certificate bundle at '/usr/share/dotnet/sdk/10.0.102/trustedroots/codesignctl.pem'.
+         X.509 certificate chain validation will use the fallback certificate bundle at '/usr/share/dotnet/sdk/10.0.102/trustedroots/timestampctl.pem'.
+         Assets file has not changed. Skipping assets file writing. Path: /home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/obj/project.assets.json
+         Assets file has not changed. Skipping assets file writing. Path: /home/runner/work/maui-version/maui-version/src/MauiVersion/obj/project.assets.json
+         Restored /home/runner/work/maui-version/maui-version/src/MauiVersion/MauiVersion.csproj (in 50 ms).
+         Restored /home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj (in 50 ms).
+         
+         NuGet Config files used:
+             /home/runner/.nuget/NuGet/NuGet.Config
+         
+         Feeds used:
+             https://api.nuget.org/v3/index.json
+         All projects are up-to-date for restore.
+     1>Done Building Project "/home/runner/work/maui-version/maui-version/MauiVersion.slnx" (Restore target(s)).
+   1:2>Project "/home/runner/work/maui-version/maui-version/MauiVersion.slnx" on node 1 (VSTest target(s)).
+     1>ValidateSolutionConfiguration:
+         Building solution configuration "Debug|Any CPU".
+   1:2>Project "/home/runner/work/maui-version/maui-version/MauiVersion.slnx" (1:2) is building "/home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj" (3:6) on node 2 (VSTest target(s)).
+     3>BuildProject:
+         Build started, please wait...
+   3:6>Project "/home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj" (3:6) is building "/home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj" (3:7) on node 2 (default targets).
+   3:7>Project "/home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj" (3:7) is building "/home/runner/work/maui-version/maui-version/src/MauiVersion/MauiVersion.csproj" (2:9) on node 1 (default targets).
+     2>GenerateTargetFrameworkMonikerAttribute:
+       Skipping target "GenerateTargetFrameworkMonikerAttribute" because all output files are up-to-date with respect to the input files.
+       CoreGenerateAssemblyInfo:
+       Skipping target "CoreGenerateAssemblyInfo" because all output files are up-to-date with respect to the input files.
+       _GenerateSourceLinkFile:
+         Source Link file 'obj/Debug/net8.0/MauiVersion.sourcelink.json' is up-to-date.
+       CoreCompile:
+       Skipping target "CoreCompile" because all output files are up-to-date with respect to the input files.
+       _CreateAppHost:
+       Skipping target "_CreateAppHost" because all output files are up-to-date with respect to the input files.
+       _CopyOutOfDateSourceItemsToOutputDirectory:
+       Skipping target "_CopyOutOfDateSourceItemsToOutputDirectory" because all output files are up-to-date with respect to the input files.
+       GenerateBuildDependencyFile:
+       Skipping target "GenerateBuildDependencyFile" because all output files are up-to-date with respect to the input files.
+       GenerateBuildRuntimeConfigurationFiles:
+       Skipping target "GenerateBuildRuntimeConfigurationFiles" because all output files are up-to-date with respect to the input files.
+       CopyFilesToOutputDirectory:
+         MauiVersion -> /home/runner/work/maui-version/maui-version/src/MauiVersion/bin/Debug/net8.0/maui-version.dll
+     2>Done Building Project "/home/runner/work/maui-version/maui-version/src/MauiVersion/MauiVersion.csproj" (default targets).
+     3>GenerateTargetFrameworkMonikerAttribute:
+       Skipping target "GenerateTargetFrameworkMonikerAttribute" because all output files are up-to-date with respect to the input files.
+       CoreGenerateAssemblyInfo:
+       Skipping target "CoreGenerateAssemblyInfo" because all output files are up-to-date with respect to the input files.
+       _GenerateSourceLinkFile:
+         Source Link file 'obj/Debug/net10.0/MauiVersion.Tests.sourcelink.json' is up-to-date.
+       CoreCompile:
+       Skipping target "CoreCompile" because all output files are up-to-date with respect to the input files.
+       _CopyOutOfDateSourceItemsToOutputDirectory:
+       Skipping target "_CopyOutOfDateSourceItemsToOutputDirectory" because all output files are up-to-date with respect to the input files.
+       GenerateBuildDependencyFile:
+       Skipping target "GenerateBuildDependencyFile" because all output files are up-to-date with respect to the input files.
+       GenerateBuildRuntimeConfigurationFiles:
+       Skipping target "GenerateBuildRuntimeConfigurationFiles" because all output files are up-to-date with respect to the input files.
+       CopyFilesToOutputDirectory:
+         MauiVersion.Tests -> /home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/bin/Debug/net10.0/MauiVersion.Tests.dll
+     3>Done Building Project "/home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj" (default targets).
+     3>BuildProject:
+         Build completed.
+         
+Test run for /home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/bin/Debug/net10.0/MauiVersion.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.2)
+[xUnit.net 00:00:00.13]   Discovering: MauiVersion.Tests
+[xUnit.net 00:00:00.21]   Discovered:  MauiVersion.Tests
+[xUnit.net 00:00:00.26]   Starting:    MauiVersion.Tests
+[38;5;12mℹ[0m Updated NuGet.config with source: nightly
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.IsVersionCompatible_ChecksCorrectly(projectVersion: "9.0", packageVersion: "9.0", expected: True) [11 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.IsVersionCompatible_ChecksCorrectly(projectVersion: null, packageVersion: "10.0", expected: True) [< 1 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.IsVersionCompatible_ChecksCorrectly(projectVersion: "9.0", packageVersion: "10.0", expected: False) [< 1 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.IsVersionCompatible_ChecksCorrectly(projectVersion: "9.0", packageVersion: null, expected: True) [< 1 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.IsVersionCompatible_ChecksCorrectly(projectVersion: "10.0", packageVersion: "10.0", expected: True) [< 1 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.ExtractDotNetVersionFromMauiVersion_ExtractsCorrectly(mauiVersion: "8.0.100", expectedDotNetVersion: "8.0") [1 ms]
+[38;5;12mℹ[0m Created NuGet.config with source: test-feed
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.ExtractDotNetVersionFromMauiVersion_ExtractsCorrectly(mauiVersion: "9.0.120", expectedDotNetVersion: "9.0") [< 1 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.ExtractDotNetVersionFromMauiVersion_ExtractsCorrectly(mauiVersion: "10.0.0-ci.inflight.25553.5", expectedDotNetVersion: "10.0") [< 1 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.ExtractDotNetVersionFromMauiVersion_ExtractsCorrectly(mauiVersion: "10.0.11", expectedDotNetVersion: "10.0") [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithPostponedBuild_ReturnsTrue [46 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithInProgressBuild_ReturnsTrue [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithCompletedBuild_ReturnsFalse [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithMissingDefinition_ReturnsFalse [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithMissingValueProperty_ReturnsFalse [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithMixedBuilds_ReturnsTrueWhenAnyInProgress [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithCancellingBuild_ReturnsFalse [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithInvalidJson_ReturnsFalse [7 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithNoBuilds_ReturnsFalse [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithNotStartedBuild_ReturnsTrue [< 1 ms]
+  Passed MauiVersion.Tests.AzureDevOpsServiceTests.HasInProgressMauiPrBuild_WithInProgressNonMauiPrBuild_ReturnsFalse [< 1 ms]
+  Passed MauiVersion.Tests.ProjectLocatorTests.FindMauiProjectAsync_WithNonMauiProject_ReturnsNull [70 ms]
+  Passed MauiVersion.Tests.ProjectLocatorTests.FindMauiProjectAsync_WithNoProject_ReturnsNull [4 ms]
+[38;5;12mℹ[0m Updated NuGet.config with source: nightly
+[38;5;12mℹ[0m Updated NuGet.config with source: nightly
+  Passed MauiVersion.Tests.ProjectUpdaterTests.UpdatePackageVersionInProject_PreservesOriginalFormatting [93 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.UpdateTargetFrameworksAsync_PreservesOriginalFormatting [50 ms]
+  Passed MauiVersion.Tests.ProjectLocatorTests.FindMauiProjectAsync_WithValidMauiProject_ReturnsProject [22 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.UpdateTargetFrameworksAsync_UpdatesAllTfms [17 ms]
+  Passed MauiVersion.Tests.TargetFrameworkServiceTests.UpdateTargetFrameworksAsync_UpdatesSingleTfm [6 ms]
+  Passed MauiVersion.Tests.ProjectUpdaterTests.CreateNuGetConfig_UpdatesExistingSource_WhenSameKeyExists [154 ms]
+  Passed MauiVersion.Tests.ProjectUpdaterTests.CreateNuGetConfig_CreatesNewFile_WhenNotExists [13 ms]
+  Passed MauiVersion.Tests.ProjectUpdaterTests.UpdatePackageVersionInProject_PreservesFormattingWithVersionBeforeInclude [4 ms]
+  Passed MauiVersion.Tests.ProjectUpdaterTests.CreateNuGetConfig_RemovesClearElement_FromExistingConfig [4 ms]
+[xUnit.net 00:00:01.49]   Finished:    MauiVersion.Tests
+  Passed MauiVersion.Tests.ProjectUpdaterTests.UpdatePackageVersionInProject_UpdatesExistingPackage [3 ms]
+  Passed MauiVersion.Tests.ProjectUpdaterTests.CreateNuGetConfig_UpdatesExistingFile_PreservesOtherSources [6 ms]
+  Passed MauiVersion.Tests.ProjectUpdaterTests.UpdatePackageVersion_ReplacesMauiVersionVariable [4 ms]
+  Passed MauiVersion.Tests.IntegrationTests.ApplyCommand_ShowsHelp [267 ms]
+  Passed MauiVersion.Tests.IntegrationTests.CliExecutable_Exists [< 1 ms]
+  Passed MauiVersion.Tests.IntegrationTests.Cli_ShowsHelp [281 ms]
+  Passed MauiVersion.Tests.IntegrationTests.Cli_ShowsVersion [235 ms]
+  Passed MauiVersion.Tests.IntegrationTests.ApplyCommand_WithNonExistentProject_ReturnsError [302 ms]
+
+Test Run Successful.
+Total tests: 39
+     Passed: 39
+ Total time: 2.1436 Seconds
+     3>Done Building Project "/home/runner/work/maui-version/maui-version/tests/MauiVersion.Tests/MauiVersion.Tests.csproj" (VSTest target(s)).
+     1>Done Building Project "/home/runner/work/maui-version/maui-version/MauiVersion.slnx" (VSTest target(s)).
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:04.32

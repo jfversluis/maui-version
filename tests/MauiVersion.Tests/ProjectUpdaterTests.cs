@@ -121,6 +121,107 @@ public class ProjectUpdaterTests
     }
 
     [Fact]
+    public async Task UpdatePackageVersionInProject_PreservesOriginalFormatting()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var projectFile = Path.Combine(tempDir, "TestProject.csproj");
+            // Use 4-space indentation to verify it's preserved (not reset to 2 spaces)
+            var projectContent = "<Project Sdk=\"Microsoft.NET.Sdk\">\r\n" +
+                "    <PropertyGroup>\r\n" +
+                "        <TargetFramework>net9.0</TargetFramework>\r\n" +
+                "        <UseMaui>true</UseMaui>\r\n" +
+                "    </PropertyGroup>\r\n" +
+                "    <ItemGroup>\r\n" +
+                "        <PackageReference Include=\"Microsoft.Maui.Controls\" Version=\"9.0.0\" />\r\n" +
+                "    </ItemGroup>\r\n" +
+                "</Project>";
+            await File.WriteAllTextAsync(projectFile, projectContent);
+
+            var updateMethod = typeof(ProjectUpdater).GetMethod(
+                "UpdatePackageVersionInProjectAsync",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (updateMethod != null)
+            {
+                await (Task)updateMethod.Invoke(_projectUpdater, new object[]
+                {
+                    projectFile,
+                    "Microsoft.Maui.Controls",
+                    "10.0.0",
+                    CancellationToken.None
+                })!;
+            }
+
+            var updatedContent = await File.ReadAllTextAsync(projectFile);
+
+            // Verify version was updated
+            Assert.Contains("Version=\"10.0.0\"", updatedContent);
+
+            // Verify original 4-space indentation is preserved
+            Assert.Contains("    <PropertyGroup>", updatedContent);
+            Assert.Contains("        <TargetFramework>", updatedContent);
+            Assert.Contains("        <PackageReference", updatedContent);
+
+            // Verify no 2-space indentation was introduced
+            Assert.DoesNotContain("\n  <PropertyGroup>", updatedContent);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task UpdatePackageVersionInProject_PreservesFormattingWithVersionBeforeInclude()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var projectFile = Path.Combine(tempDir, "TestProject.csproj");
+            var projectContent = "<Project Sdk=\"Microsoft.NET.Sdk\">\r\n" +
+                "\t<ItemGroup>\r\n" +
+                "\t\t<PackageReference Version=\"9.0.0\" Include=\"Microsoft.Maui.Controls\" />\r\n" +
+                "\t</ItemGroup>\r\n" +
+                "</Project>";
+            await File.WriteAllTextAsync(projectFile, projectContent);
+
+            var updateMethod = typeof(ProjectUpdater).GetMethod(
+                "UpdatePackageVersionInProjectAsync",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (updateMethod != null)
+            {
+                await (Task)updateMethod.Invoke(_projectUpdater, new object[]
+                {
+                    projectFile,
+                    "Microsoft.Maui.Controls",
+                    "10.0.0",
+                    CancellationToken.None
+                })!;
+            }
+
+            var updatedContent = await File.ReadAllTextAsync(projectFile);
+
+            // Verify version was updated
+            Assert.Contains("Version=\"10.0.0\"", updatedContent);
+
+            // Verify tab indentation is preserved
+            Assert.Contains("\t<ItemGroup>", updatedContent);
+            Assert.Contains("\t\t<PackageReference", updatedContent);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public async Task CreateNuGetConfig_CreatesNewFile_WhenNotExists()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 
 namespace MauiVersion.Services;
@@ -40,26 +39,26 @@ public class TargetFrameworkService : ITargetFrameworkService
     {
         _logger.LogInformation("Updating TargetFrameworks to .NET {Version}", newDotNetVersion);
 
-        var doc = await Task.Run(() => XDocument.Load(projectPath), cancellationToken);
+        var content = await File.ReadAllTextAsync(projectPath, cancellationToken);
+        var originalContent = content;
 
-        // Update all TargetFrameworks and TargetFramework elements (including conditional ones)
-        var tfmElements = doc.Descendants("TargetFrameworks").Concat(doc.Descendants("TargetFramework")).ToList();
-
-        if (tfmElements.Any())
+        // Use text-based replacement to preserve original formatting/indentation
+        content = Regex.Replace(content, @"(<TargetFrameworks?>)([^<]*)(</TargetFrameworks?>)", m =>
         {
-            foreach (var tfmElement in tfmElements)
+            var currentValue = m.Groups[2].Value;
+            var updatedValue = Regex.Replace(currentValue, @"net\d+\.\d+", $"net{newDotNetVersion}");
+
+            if (currentValue != updatedValue)
             {
-                var currentValue = tfmElement.Value;
-                var updatedValue = Regex.Replace(currentValue, @"net\d+\.\d+", $"net{newDotNetVersion}");
-                
-                if (currentValue != updatedValue)
-                {
-                    tfmElement.Value = updatedValue;
-                    _logger.LogInformation("Updated TargetFrameworks from {Old} to {New}", currentValue, updatedValue);
-                }
+                _logger.LogInformation("Updated TargetFrameworks from {Old} to {New}", currentValue, updatedValue);
             }
 
-            await Task.Run(() => doc.Save(projectPath), cancellationToken);
+            return m.Groups[1].Value + updatedValue + m.Groups[3].Value;
+        });
+
+        if (content != originalContent)
+        {
+            await File.WriteAllTextAsync(projectPath, content, cancellationToken);
             _logger.LogInformation("Note: You may need to update other package dependencies to match .NET {Version}", newDotNetVersion);
         }
     }

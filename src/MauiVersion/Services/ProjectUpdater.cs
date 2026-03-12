@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text;
-using System.Xml;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using MauiVersion.Models;
 using Microsoft.Extensions.Logging;
@@ -419,28 +419,46 @@ public class ProjectUpdater : IProjectUpdater
 
     private async Task UpdatePackageVersionInProjectAsync(string projectPath, string packageName, string version, CancellationToken cancellationToken)
     {
-        var doc = await Task.Run(() => XDocument.Load(projectPath), cancellationToken);
-        
+        var content = await File.ReadAllTextAsync(projectPath, cancellationToken);
+        var escapedName = Regex.Escape(packageName);
+
+        // Try text-based replacement to preserve original formatting/indentation
+        // Pattern 1: Include comes before Version
+        var pattern1 = @"(<PackageReference\b[^>]*?\bInclude\s*=\s*""" + escapedName + @"""[^>]*?\bVersion\s*=\s*"")[^""]*(""[^>]*/?>)";
+        // Pattern 2: Version comes before Include
+        var pattern2 = @"(<PackageReference\b[^>]*?\bVersion\s*=\s*"")[^""]*(""[^>]*?\bInclude\s*=\s*""" + escapedName + @"""[^>]*/?>)";
+
+        if (Regex.IsMatch(content, pattern1, RegexOptions.Singleline))
+        {
+            content = Regex.Replace(content, pattern1, "${1}" + version + "${2}", RegexOptions.Singleline);
+            await File.WriteAllTextAsync(projectPath, content, cancellationToken);
+            _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
+            return;
+        }
+
+        if (Regex.IsMatch(content, pattern2, RegexOptions.Singleline))
+        {
+            content = Regex.Replace(content, pattern2, "${1}" + version + "${2}", RegexOptions.Singleline);
+            await File.WriteAllTextAsync(projectPath, content, cancellationToken);
+            _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
+            return;
+        }
+
+        // Fall back to XDocument for structural changes (adding new elements)
+        var doc = XDocument.Parse(content, LoadOptions.PreserveWhitespace);
+
         var packageReference = doc.Descendants("PackageReference")
             .FirstOrDefault(e => e.Attribute("Include")?.Value == packageName);
 
         if (packageReference != null)
         {
-            var versionAttr = packageReference.Attribute("Version");
-            if (versionAttr != null)
-            {
-                versionAttr.Value = version;
-            }
-            else
-            {
-                packageReference.Add(new XAttribute("Version", version));
-            }
+            packageReference.Add(new XAttribute("Version", version));
         }
         else
         {
             var itemGroup = doc.Descendants("ItemGroup").FirstOrDefault()
                 ?? doc.Root?.Elements("ItemGroup").FirstOrDefault();
-            
+
             if (itemGroup == null)
             {
                 itemGroup = new XElement("ItemGroup");
@@ -452,19 +470,7 @@ public class ProjectUpdater : IProjectUpdater
                 new XAttribute("Version", version)));
         }
 
-        var settings = new XmlWriterSettings
-        {
-            OmitXmlDeclaration = true,
-            Indent = true,
-            IndentChars = "  ",
-            Encoding = new UTF8Encoding(false)
-        };
-        
-        await Task.Run(() =>
-        {
-            using var writer = XmlWriter.Create(projectPath, settings);
-            doc.Save(writer);
-        }, cancellationToken);
+        await File.WriteAllTextAsync(projectPath, doc.ToString(), cancellationToken);
         _logger.LogInformation("Updated {Package} to version {Version} in {Project}", packageName, version, projectPath);
     }
 

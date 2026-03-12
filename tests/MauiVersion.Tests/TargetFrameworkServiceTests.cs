@@ -96,4 +96,45 @@ public class TargetFrameworkServiceTests
             Directory.Delete(tempDir, true);
         }
     }
+
+    [Fact]
+    public async Task UpdateTargetFrameworksAsync_PreservesOriginalFormatting()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var projectFile = Path.Combine(tempDir, "TestProject.csproj");
+            // Use 4-space indentation to verify it's preserved (not reset to 2 spaces)
+            var projectContent = "<Project Sdk=\"Microsoft.NET.Sdk\">\r\n" +
+                "    <PropertyGroup>\r\n" +
+                "        <TargetFrameworks>net9.0-android;net9.0-ios;net9.0-maccatalyst</TargetFrameworks>\r\n" +
+                "        <UseMaui>true</UseMaui>\r\n" +
+                "    </PropertyGroup>\r\n" +
+                "</Project>";
+            await File.WriteAllTextAsync(projectFile, projectContent);
+
+            await _service.UpdateTargetFrameworksAsync(projectFile, "10.0", CancellationToken.None);
+
+            var updatedContent = await File.ReadAllTextAsync(projectFile);
+
+            // Verify TFMs were updated
+            Assert.Contains("net10.0-android", updatedContent);
+            Assert.Contains("net10.0-ios", updatedContent);
+            Assert.DoesNotContain("net9.0", updatedContent);
+
+            // Verify original 4-space indentation is preserved
+            Assert.Contains("    <PropertyGroup>", updatedContent);
+            Assert.Contains("        <TargetFrameworks>", updatedContent);
+            Assert.Contains("        <UseMaui>", updatedContent);
+
+            // Verify no XML declaration was added
+            Assert.DoesNotContain("<?xml", updatedContent);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 }
