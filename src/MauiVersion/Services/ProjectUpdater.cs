@@ -452,7 +452,15 @@ public class ProjectUpdater : IProjectUpdater
 
         if (packageReference != null)
         {
-            packageReference.Add(new XAttribute("Version", version));
+            var versionAttribute = packageReference.Attribute("Version");
+            if (versionAttribute != null)
+            {
+                versionAttribute.Value = version;
+            }
+            else
+            {
+                packageReference.Add(new XAttribute("Version", version));
+            }
         }
         else
         {

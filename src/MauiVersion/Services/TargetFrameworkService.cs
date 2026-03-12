@@ -43,7 +43,7 @@ public class TargetFrameworkService : ITargetFrameworkService
         var originalContent = content;
 
         // Use text-based replacement to preserve original formatting/indentation
-        content = Regex.Replace(content, @"(<TargetFrameworks?>)([^<]*)(</TargetFrameworks?>)", m =>
+        content = Regex.Replace(content, @"(<TargetFrameworks?\b[^>]*>)([^<]*)(</TargetFrameworks?>)", m =>
         {
             var currentValue = m.Groups[2].Value;
             var updatedValue = Regex.Replace(currentValue, @"net\d+\.\d+", $"net{newDotNetVersion}");

@@ -98,6 +98,45 @@ public class TargetFrameworkServiceTests
     }
 
     [Fact]
+    public async Task UpdateTargetFrameworksAsync_UpdatesConditionalTargetFrameworks()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var projectFile = Path.Combine(tempDir, "TestProject.csproj");
+            var projectContent = "<Project Sdk=\"Microsoft.NET.Sdk\">\r\n" +
+                "    <PropertyGroup>\r\n" +
+                "        <TargetFrameworks Condition=\"'$(TargetFrameworks)' == ''\">net9.0-android;net9.0-ios</TargetFrameworks>\r\n" +
+                "        <UseMaui>true</UseMaui>\r\n" +
+                "    </PropertyGroup>\r\n" +
+                "</Project>";
+            await File.WriteAllTextAsync(projectFile, projectContent);
+
+            await _service.UpdateTargetFrameworksAsync(projectFile, "10.0", CancellationToken.None);
+
+            var updatedContent = await File.ReadAllTextAsync(projectFile);
+
+            // Verify TFMs were updated
+            Assert.Contains("net10.0-android", updatedContent);
+            Assert.Contains("net10.0-ios", updatedContent);
+            Assert.DoesNotContain("net9.0", updatedContent);
+
+            // Verify Condition attribute is preserved
+            Assert.Contains("Condition=", updatedContent);
+
+            // Verify original 4-space indentation is preserved
+            Assert.Contains("    <PropertyGroup>", updatedContent);
+            Assert.Contains("        <TargetFrameworks Condition=", updatedContent);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public async Task UpdateTargetFrameworksAsync_PreservesOriginalFormatting()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

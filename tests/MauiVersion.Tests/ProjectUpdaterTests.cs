@@ -145,16 +145,15 @@ public class ProjectUpdaterTests
                 "UpdatePackageVersionInProjectAsync",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-            if (updateMethod != null)
+            Assert.NotNull(updateMethod);
+
+            await (Task)updateMethod!.Invoke(_projectUpdater, new object[]
             {
-                await (Task)updateMethod.Invoke(_projectUpdater, new object[]
-                {
-                    projectFile,
-                    "Microsoft.Maui.Controls",
-                    "10.0.0",
-                    CancellationToken.None
-                })!;
-            }
+                projectFile,
+                "Microsoft.Maui.Controls",
+                "10.0.0",
+                CancellationToken.None
+            })!;
 
             var updatedContent = await File.ReadAllTextAsync(projectFile);
 
@@ -195,16 +194,15 @@ public class ProjectUpdaterTests
                 "UpdatePackageVersionInProjectAsync",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-            if (updateMethod != null)
+            Assert.NotNull(updateMethod);
+
+            await (Task)updateMethod!.Invoke(_projectUpdater, new object[]
             {
-                await (Task)updateMethod.Invoke(_projectUpdater, new object[]
-                {
-                    projectFile,
-                    "Microsoft.Maui.Controls",
-                    "10.0.0",
-                    CancellationToken.None
-                })!;
-            }
+                projectFile,
+                "Microsoft.Maui.Controls",
+                "10.0.0",
+                CancellationToken.None
+            })!;
 
             var updatedContent = await File.ReadAllTextAsync(projectFile);
 
